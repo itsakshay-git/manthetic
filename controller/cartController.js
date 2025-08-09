@@ -5,17 +5,41 @@ exports.getCart = async (req, res) => {
   res.json(items);
 };
 
-exports.addToCart = async (req, res) => {
-  const { variant_id, quantity } = req.body;
+// exports.addToCart = async (req, res) => {
+//   const { variant_id, quantity } = req.body;
 
-  const existingItem = await cartModel.getExistingCartItem(req.user.id, variant_id);
+//   const existingItem = await cartModel.getExistingCartItem(req.user.id, variant_id);
+
+//   if (existingItem) {
+//     const updated = await cartModel.incrementCartItemQuantity(existingItem.id, quantity);
+//     return res.json(updated);
+//   }
+
+//   const newItem = await cartModel.insertCartItem(req.user.id, variant_id, quantity);
+//   res.status(201).json(newItem);
+// };
+
+exports.addToCart = async (req, res) => {
+  const { variant_id, quantity, selected_size, selected_price } = req.body;
+
+  const existingItem = await cartModel.getExistingCartItem(
+    req.user.id,
+    variant_id,
+    selected_size // check uniqueness by variant_id + size
+  );
 
   if (existingItem) {
     const updated = await cartModel.incrementCartItemQuantity(existingItem.id, quantity);
     return res.json(updated);
   }
 
-  const newItem = await cartModel.insertCartItem(req.user.id, variant_id, quantity);
+  const newItem = await cartModel.insertCartItem(
+    req.user.id,
+    variant_id,
+    quantity,
+    selected_size,
+    selected_price
+  );
   res.status(201).json(newItem);
 };
 

@@ -6,13 +6,15 @@ const {
   getAllVariants,
   updateVariant,
   deleteVariant,
-  upload
+  upload,
+  getVariantsById
 } = require('../controller/variantController');
 const { protect } = require('../middleware/authMiddleware');
 const { isAdmin } = require('../middleware/roleMiddleware');
 
 router.get("/product/variants", getAllVariants);
 router.get('/product/:id', getVariantsByProduct);
+router.get('/variant/:id', getVariantsById);
 router.post('/admin/variants', protect, isAdmin, upload.array('images'), createVariant);
 router.put('/admin/variants/:id', protect, isAdmin,upload.array('images'), updateVariant);
 router.delete('/admin/variants/:id', protect, isAdmin, deleteVariant);

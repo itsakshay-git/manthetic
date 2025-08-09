@@ -22,6 +22,16 @@ exports.getVariantsByProduct = async (req, res) => {
   }
 };
 
+exports.getVariantsById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const variants = await getVariantById(id);
+    res.json(variants);
+  } catch (err) {
+    res.status(500).json({ error: 'Error fetching variants' });
+  }
+};
+
 exports.getAllVariants = async (req, res) => {
   try {
 
@@ -34,7 +44,9 @@ exports.getAllVariants = async (req, res) => {
 
 exports.createVariant = async (req, res) => {
   try {
-    const { product_id, size, price, stock, is_best_selling, name, description } = req.body;
+    const { product_id, size_options, is_best_selling, name, description } = req.body;
+
+    console.log("test", size_options)
 
     let imageLinks = [];
 
@@ -50,9 +62,7 @@ exports.createVariant = async (req, res) => {
 
     const variant = await createVariant({
       product_id,
-      size,
-      price,
-      stock,
+      size_options: size_options,
       images: imageLinks,
       is_best_selling,
       name,
@@ -71,9 +81,7 @@ exports.updateVariant = async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      size,
-      price,
-      stock,
+      size_options,
       is_best_selling,
       name,
       description,
@@ -82,9 +90,7 @@ exports.updateVariant = async (req, res) => {
 
     // Convert incoming types
     const updatedData = {
-      size,
-      price: parseFloat(price),
-      stock: parseInt(stock, 10),
+      size_options: size_options,
       is_best_selling: is_best_selling === 'true',
       name,
       description,

@@ -4,8 +4,8 @@ const cloudinary = require('../utils/cloudinary');
 
 exports.getProducts = async (req, res) => {
   try {
-    const { search, category } = req.query;
-    const products = await ProductModel.getAllProducts(search, category);
+const { search, category, page = 1, limit = 12, in_stock, out_of_stock, is_best_selling, size } = req.query;
+const products = await ProductModel.getAllProducts(search, category, in_stock, out_of_stock, is_best_selling, size, parseInt(page), parseInt(limit));
     res.json(products);
   } catch (err) {
     res.status(500).json({ msg: 'Error fetching products', error: err.message });
@@ -20,6 +20,21 @@ exports.getProductById = async (req, res) => {
     res.json(product);
   } catch (err) {
     res.status(500).json({ msg: 'Error fetching product', error: err.message });
+  }
+};
+
+exports.getVariantsByProductId = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const variants = await ProductModel.getVariantsByProductId(id);
+
+    if (!variants.length) {
+      return res.status(404).json({ msg: 'No variants found for this product' });
+    }
+
+    res.json(variants);
+  } catch (err) {
+    res.status(500).json({ msg: 'Error fetching variants', error: err.message });
   }
 };
 

@@ -1,10 +1,30 @@
 const pool = require('../db');
 
+// exports.getCartItemsByUserId = async (userId) => {
+//   const result = await pool.query(`
+//     SELECT ci.id, ci.quantity, 
+//            pv.size_options, pv.images,
+//            p.title AS product_title
+//     FROM cart_items ci
+//     JOIN product_variants pv ON ci.variant_id = pv.id
+//     JOIN products p ON pv.product_id = p.id
+//     WHERE ci.user_id = $1
+//   `, [userId]);
+
+//   return result.rows;
+// };
+
+
 exports.getCartItemsByUserId = async (userId) => {
   const result = await pool.query(`
-    SELECT ci.id, ci.quantity, 
-           pv.size, pv.price, pv.images, pv.stock,
-           p.title AS product_title
+    SELECT 
+      ci.id, 
+      ci.quantity,
+      ci.selected_size,
+      ci.selected_price,
+      pv.name AS variant_name,
+      pv.images,
+      p.title AS product_title
     FROM cart_items ci
     JOIN product_variants pv ON ci.variant_id = pv.id
     JOIN products p ON pv.product_id = p.id
@@ -14,18 +34,34 @@ exports.getCartItemsByUserId = async (userId) => {
   return result.rows;
 };
 
-exports.getExistingCartItem = async (userId, variantId) => {
+// exports.getExistingCartItem = async (userId, variantId) => {
+//   const result = await pool.query(
+//     'SELECT * FROM cart_items WHERE user_id = $1 AND variant_id = $2',
+//     [userId, variantId]
+//   );
+//   return result.rows[0];
+// };
+
+// exports.insertCartItem = async (userId, variantId, quantity) => {
+//   const result = await pool.query(
+//     'INSERT INTO cart_items (user_id, variant_id, quantity) VALUES ($1, $2, $3) RETURNING *',
+//     [userId, variantId, quantity]
+//   );
+//   return result.rows[0];
+// };
+
+exports.getExistingCartItem = async (userId, variantId, selectedSize) => {
   const result = await pool.query(
-    'SELECT * FROM cart_items WHERE user_id = $1 AND variant_id = $2',
-    [userId, variantId]
+    'SELECT * FROM cart_items WHERE user_id = $1 AND variant_id = $2 AND selected_size = $3',
+    [userId, variantId, selectedSize]
   );
   return result.rows[0];
 };
 
-exports.insertCartItem = async (userId, variantId, quantity) => {
+exports.insertCartItem = async (userId, variantId, quantity, selectedSize, selectedPrice) => {
   const result = await pool.query(
-    'INSERT INTO cart_items (user_id, variant_id, quantity) VALUES ($1, $2, $3) RETURNING *',
-    [userId, variantId, quantity]
+    'INSERT INTO cart_items (user_id, variant_id, quantity, selected_size, selected_price) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+    [userId, variantId, quantity, selectedSize, selectedPrice]
   );
   return result.rows[0];
 };
