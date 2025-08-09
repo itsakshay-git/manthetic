@@ -1,53 +1,77 @@
 const pool = require('../db');
 const Order = require('../models/orderModel');
 
+
 exports.createOrder = async (req, res) => {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    const { address_id, payment_method } = req.body;
+
+    if (!address_id || !payment_method) {
+      return res.status(400).json({ msg: "Address ID and payment method are required" });
+    }
+
+    await client.query("BEGIN");
+
 
     const cartResult = await Order.getCartItemsByUserId(req.user.id);
     const cartItems = cartResult.rows;
+    console.log(cartItems)
     if (cartItems.length === 0) {
-      return res.status(400).json({ msg: 'Cart is empty' });
+      return res.status(400).json({ msg: "Cart is empty" });
     }
 
     let totalAmount = 0;
 
-    for (const item of cartItems) {
-      const variantResult = await Order.getVariantDetails(item.variant_id);
-      if (variantResult.rows.length === 0) throw new Error('Invalid variant');
 
-      const { price, stock } = variantResult.rows[0];
-      if (stock < item.quantity) throw new Error('Insufficient stock');
+    const orderResult = await Order.createOrder(
+      req.user.id,
+      totalAmount,
+      address_id,
+      payment_method
+    );
+    const order = orderResult.rows[0];
+
+
+    for (const item of cartItems) {
+      const variantData = await Order.getVariantPriceAndStockBySize(
+        item.variant_id,
+        item.selected_size
+      );
+
+      if (!variantData.rows.length) {
+        throw new Error("Invalid size/variant");
+      }
+
+      const { price, stock, product_id } = variantData.rows[0];
+      if (stock < item.quantity) {
+        throw new Error("Insufficient stock");
+      }
 
       totalAmount += Number(price) * item.quantity;
 
-      await Order.reduceStock(item.quantity, item.variant_id);
-    }
-
-    const orderResult = await Order.createOrder(req.user.id, totalAmount);
-    const order = orderResult.rows[0];
-
-    for (const item of cartItems) {
-      const variantResult = await Order.getVariantDetails(item.variant_id);
-      const { product_id, price } = variantResult.rows[0];
+      await Order.reduceStock(item.variant_id, item.selected_size, item.quantity);
 
       await Order.addOrderItem(order.id, product_id, item.variant_id, item.quantity, price);
     }
 
+    await Order.updateOrderTotal(order.id, totalAmount);
+
     await Order.clearCart(req.user.id);
 
-    await client.query('COMMIT');
-    res.status(201).json({ msg: 'Order placed', order_id: order.id });
+    await client.query("COMMIT");
+    res.status(201).json({ msg: "Order placed", order_id: order.id });
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     console.error(err.message);
-    res.status(500).json({ msg: 'Order failed', error: err.message });
+    res.status(500).json({ msg: "Order failed", error: err.message });
   } finally {
     client.release();
   }
 };
+
+
+
 
 exports.getMyOrders = async (req, res) => {
   const result = await Order.getUserOrders(req.user.id);

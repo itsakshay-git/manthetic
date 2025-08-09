@@ -4,17 +4,63 @@ exports.getCartItemsByUserId = (userId) =>
   pool.query(`SELECT * FROM cart_items WHERE user_id = $1`, [userId]);
 
 exports.getVariantDetails = (variantId) =>
-  pool.query(`SELECT product_id, price, stock FROM product_variants WHERE id = $1`, [variantId]);
-
-exports.reduceStock = (quantity, variantId) =>
-  pool.query(`UPDATE product_variants SET stock = stock - $1 WHERE id = $2`, [quantity, variantId]);
-
-exports.createOrder = (customerId, totalAmount) =>
   pool.query(
-    `INSERT INTO orders (customer_id, total_amount, status, payment_status)
-     VALUES ($1, $2, 'PENDING', 'PENDING') RETURNING *`,
-    [customerId, totalAmount]
+    `SELECT product_id, size_options
+     FROM product_variants WHERE id = $1`,
+    [variantId]
   );
+
+exports.getVariantPriceAndStockBySize = (variantId, size) => {
+  return pool.query(
+    `SELECT 
+        (elem->>'price')::numeric AS price,
+        (elem->>'stock')::int AS stock,
+        pv.product_id
+     FROM product_variants pv
+     CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) elem
+     WHERE pv.id = $1
+       AND LOWER(TRIM(elem->>'size')) = LOWER(TRIM($2))`,
+    [variantId, size.trim()]
+  );
+};
+
+exports.updateOrderTotal = (orderId, totalAmount) => {
+  return pool.query(
+    `UPDATE orders SET total_amount = $2 WHERE id = $1`,
+    [orderId, totalAmount]
+  );
+};
+
+
+exports.reduceStock = async (variantId, size, quantity) => {
+  await pool.query(
+    `UPDATE product_variants
+     SET size_options = jsonb_set(
+       size_options,
+       ('{' || idx || ',stock}')::text[],
+       ((size_options -> (idx::int) ->> 'stock')::int - $1)::text::jsonb
+     )
+     FROM (
+       SELECT ord - 1 AS idx
+       FROM product_variants,
+            jsonb_array_elements(size_options) WITH ORDINALITY arr(elem, ord)
+       WHERE id = $2
+         AND elem @> jsonb_build_object('size', $3::text)
+     ) sub
+     WHERE id = $2;`,
+    [quantity, variantId, size]
+  );
+};
+
+
+exports.createOrder = (customerId, totalAmount, addressId, paymentMethod) =>
+  pool.query(
+    `INSERT INTO orders (customer_id, total_amount, status, payment_status, address_id, payment_method)
+     VALUES ($1, $2, 'PENDING', 'PENDING', $3, $4)
+     RETURNING *`,
+    [customerId, totalAmount, addressId, paymentMethod]
+  );
+
 
 exports.addOrderItem = (orderId, productId, variantId, quantity, price) =>
   pool.query(
@@ -22,6 +68,7 @@ exports.addOrderItem = (orderId, productId, variantId, quantity, price) =>
      VALUES ($1, $2, $3, $4, $5)`,
     [orderId, productId, variantId, quantity, price]
   );
+
 
 exports.clearCart = (userId) =>
   pool.query(`DELETE FROM cart_items WHERE user_id = $1`, [userId]);
