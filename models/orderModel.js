@@ -121,3 +121,96 @@ exports.updateOrderStatus = (status, paymentStatus, orderId) =>
      WHERE id = $3 RETURNING *`,
     [status, paymentStatus, orderId]
   );
+
+
+  exports.getOrderById = (orderId) =>
+  pool.query(
+    `
+    SELECT 
+      o.id,
+      o.customer_id,
+      u.name AS customer_name,
+      o.status,
+      o.payment_status,
+      o.total_amount,
+      o.address_id,
+      o.payment_method,
+      o.created_at,
+      o.updated_at,
+      (
+        SELECT json_agg(
+          json_build_object(
+            'id', oi.id,
+            'product_id', oi.product_id,
+            'variant_id', oi.variant_id,
+            'quantity', oi.quantity,
+            'price', oi.price,
+            'product_name', p.title
+          )
+        )
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = o.id
+      ) AS items
+    FROM orders o
+    LEFT JOIN users u ON u.id = o.customer_id
+    WHERE o.id = $1
+    LIMIT 1
+    `,
+    [orderId]
+  );
+
+exports.getOrdersByUserIdAdmin = (userId, limit, offset) =>
+  pool.query(`
+    SELECT 
+      o.id,
+      o.customer_id,
+      u.name AS customer_name,
+      u.email AS customer_email,
+      o.status,
+      o.payment_status,
+      o.total_amount,
+      o.created_at,
+      o.updated_at,
+      (
+        SELECT json_agg(
+          json_build_object(
+            'id', oi.id,
+            'product_id', oi.product_id,
+            'variant_id', oi.variant_id,
+            'quantity', oi.quantity,
+            'price', (
+              SELECT so->>'price'
+              FROM jsonb_array_elements(pv.size_options) so
+              LIMIT 1
+            ),
+            'size', (
+              SELECT so->>'size'
+              FROM jsonb_array_elements(pv.size_options) so
+              LIMIT 1
+            ),
+            'product_name', p.title,
+            'variant_name', pv.name,
+            'images', pv.images
+          )
+        )
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        JOIN product_variants pv ON pv.id = oi.variant_id
+        WHERE oi.order_id = o.id
+      ) AS items
+    FROM orders o
+    LEFT JOIN users u ON u.id = o.customer_id
+    WHERE o.customer_id = $1
+    ORDER BY o.created_at DESC
+    LIMIT $2 OFFSET $3;
+  `, [userId, limit, offset]);
+
+// Helper to get total orders count
+exports.getOrdersCountByUserId = (userId) =>
+  pool.query(`SELECT COUNT(*) FROM orders WHERE customer_id = $1;`, [userId]);
+
+
+
+
+

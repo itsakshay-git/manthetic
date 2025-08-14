@@ -54,6 +54,14 @@ const updateUserRole = async (id, role) => {
   return result.rows[0];
 };
 
+const updateUserPassword = async (id, hashedPassword) => {
+  const result = await pool.query(
+    'UPDATE users SET password = $1 WHERE id = $2 RETURNING id, name, email, role',
+    [hashedPassword, id]
+  );
+  return result.rows[0];
+};
+
 
 module.exports = {
   getAllCustomers,
@@ -61,5 +69,6 @@ module.exports = {
   findUserByEmail,
   createUser,
   getUserById,
-  updateUserRole
+  updateUserRole,
+  updateUserPassword
 };

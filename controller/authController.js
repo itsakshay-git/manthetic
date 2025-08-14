@@ -67,3 +67,31 @@ exports.makeAdmin = async (req, res) => {
     res.status(500).json({ error: 'Failed to promote user' });
   }
 };
+
+exports.updatePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  try {
+    // Get user from DB
+    const user = await userModel.findUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ msg: 'User not found' });
+
+    // Check current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update in DB
+    await userModel.updateUserPassword(user.id, hashedNewPassword);
+
+    res.status(200).json({ msg: 'Password updated successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+};
+

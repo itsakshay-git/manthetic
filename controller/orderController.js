@@ -96,3 +96,51 @@ exports.updateOrderStatus = async (req, res) => {
 
   res.json(result.rows[0]);
 };
+
+exports.getOrderById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await Order.getOrderById(id);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ msg: 'Order not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: 'Server error' });
+  }
+};
+
+
+exports.getOrdersByUserId = async (req, res) => {
+  const { id } = req.params; // user ID
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  try {
+    const result = await Order.getOrdersByUserIdAdmin(id, limit, offset); // pass pagination
+    const totalResult = await Order.getOrdersCountByUserId(id); // total orders count
+
+    if (!result.rows.length) {
+      return res.status(404).json({ msg: "No orders found for this user" });
+    }
+
+    const totalOrders = totalResult.rows[0].count;
+    const hasMore = offset + result.rows.length < totalOrders;
+
+    res.json({
+      orders: result.rows,
+      page,
+      limit,
+      totalOrders,
+      hasMore
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: "Failed to fetch user orders" });
+  }
+};
+
+
