@@ -1,6 +1,7 @@
 const ProductModel = require('../models/productModel');
 const fs = require('fs');
 const cloudinary = require('../utils/cloudinary');
+const pool = require('../db');
 
 exports.getProducts = async (req, res) => {
   try {
@@ -107,3 +108,69 @@ exports.deleteProduct = async (req, res) => {
     res.status(500).json({ msg: 'Error deleting product', error: err.message });
   }
 };
+
+
+exports.getRelatedProducts = async (req, res) => {
+  try {
+    const { variantId } = req.params;
+
+    // 1. Find product_id + category_id of the given variant
+    const variantRes = await pool.query(
+      `SELECT pv.product_id, p.category_id 
+       FROM product_variants pv
+       JOIN products p ON pv.product_id = p.id
+       WHERE pv.id = $1`,
+      [variantId]
+    );
+
+    if (!variantRes.rows.length) {
+      return res.status(404).json({ msg: "Variant not found" });
+    }
+
+    const { product_id, category_id } = variantRes.rows[0];
+
+    // 2. Fetch products from same category (excluding current product)
+    const productRes = await pool.query(
+      `SELECT p.*, c.name AS category_name, c.description AS category_description
+       FROM products p
+       JOIN categories c ON p.category_id = c.id
+       WHERE p.category_id = $1 AND p.id <> $2
+       ORDER BY p.created_at DESC
+       LIMIT 8`,
+      [category_id, product_id]
+    );
+
+    const products = productRes.rows;
+
+    // 3. Attach variants + average rating
+    for (let product of products) {
+      const variantResult = await pool.query(
+        `SELECT * FROM product_variants WHERE product_id = $1`,
+        [product.id]
+      );
+      const variants = variantResult.rows;
+
+      const reviewResult = await pool.query(
+        `SELECT rating FROM reviews WHERE product_id = $1`,
+        [product.id]
+      );
+      const ratings = reviewResult.rows.map((r) => r.rating);
+
+      const avgRating =
+        ratings.length > 0
+          ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length).toFixed(1)
+          : null;
+
+      product.variants = variants.map((variant) => ({
+        ...variant,
+        average_rating: avgRating,
+      }));
+    }
+
+    res.json({ products });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: "Error fetching related products" });
+  }
+};
+

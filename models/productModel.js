@@ -103,7 +103,19 @@ const pool = require('../db');
 //   return products;
 // };
 
-exports.getAllProducts = async (search, category, in_stock, out_of_stock, is_best_selling, size, page = 1, limit = 12) => {
+// controllers/products.js
+
+exports.getAllProducts = async (
+  search,
+  category,
+  in_stock,
+  out_of_stock,
+  is_best_selling,
+  size,
+  page = 1,
+  limit = 12
+) => {
+
   let baseQuery = `
     SELECT 
       p.*, 
@@ -116,58 +128,87 @@ exports.getAllProducts = async (search, category, in_stock, out_of_stock, is_bes
   let conditions = [];
   let values = [];
 
-if (search) {
-  conditions.push(`LOWER(p.title) LIKE $${values.length + 1}`);
-  values.push(`%${search.toLowerCase()}%`);
-}
+  // 🔍 Search: match product title OR variant name
+  if (search) {
+    conditions.push(`(
+      LOWER(p.title) LIKE $${values.length + 1}
+      OR EXISTS (
+        SELECT 1
+        FROM product_variants pv
+        WHERE pv.product_id = p.id
+          AND LOWER(pv.name) LIKE $${values.length + 1}
+      )
+    )`);
+    values.push(`%${search.toLowerCase()}%`);
+  }
 
-if (category) {
-  conditions.push(`p.category_id = $${values.length + 1}`);
-  values.push(category);
-}
+  if (category) {
+    conditions.push(`p.category_id = $${values.length + 1}`);
+    values.push(category);
+  }
 
-if (is_best_selling === 'true') {
-  conditions.push(`EXISTS (
-    SELECT 1 FROM product_variants pv 
-    WHERE pv.product_id = p.id AND pv.is_best_selling = true
-  )`);
-}
+  // Reusable safe stock expression
+  const stockIntExpr = `
+    CASE 
+      WHEN (opt->>'stock') ~ '^-?\\d+$' THEN (opt->>'stock')::int
+      ELSE 0
+    END
+  `;
 
-if (in_stock === 'true') {
-  conditions.push(`EXISTS (
-    SELECT 1 FROM product_variants pv 
-    WHERE pv.product_id = p.id AND pv.stock > 0
-  )`);
-}
+  if (is_best_selling === "true") {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM product_variants pv 
+      WHERE pv.product_id = p.id AND pv.is_best_selling = true
+    )`);
+  }
 
-if (out_of_stock === 'true') {
-  conditions.push(`EXISTS (
-    SELECT 1 FROM product_variants pv 
-    WHERE pv.product_id = p.id AND pv.stock = 0
-  )`);
-}
+  // 🟢 In Stock
+  if (in_stock === "true") {
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM product_variants pv
+      CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) AS opt
+      WHERE pv.product_id = p.id
+        AND ${stockIntExpr} > 0
+    )`);
+  } 
+  // 🔴 Out of Stock
+  else if (out_of_stock === "true") {
+    conditions.push(`NOT EXISTS (
+      SELECT 1
+      FROM product_variants pv
+      CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) AS opt
+      WHERE pv.product_id = p.id
+        AND ${stockIntExpr} > 0
+    )`);
+  }
 
-if (size) {
-  conditions.push(`EXISTS (
-    SELECT 1 FROM product_variants pv 
-    WHERE pv.product_id = p.id AND pv.size = $${values.length + 1}
-  )`);
-  values.push(size);
-}
+  // 📏 Size filter
+  if (size) {
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM product_variants pv
+      CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) AS opt
+      WHERE pv.product_id = p.id
+        AND LOWER(opt->>'size') = LOWER($${values.length + 1})
+    )`);
+    values.push(size);
+  }
 
+  // Build WHERE
   if (conditions.length) {
-    baseQuery += ' WHERE ' + conditions.join(' AND ');
+    baseQuery += " WHERE " + conditions.join(" AND ");
   }
 
   // Total count for pagination
-  let countQuery = `SELECT COUNT(*) FROM products p`;
+  let countQuery = `SELECT COUNT(DISTINCT p.id) FROM products p`;
   if (conditions.length) {
-    countQuery += ' WHERE ' + conditions.join(' AND ');
+    countQuery += " WHERE " + conditions.join(" AND ");
   }
   const countResult = await pool.query(countQuery, values);
   const totalCount = parseInt(countResult.rows[0].count);
 
-  // Add pagination
+  // Pagination
   const offset = (page - 1) * limit;
   baseQuery += ` ORDER BY p.created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
   values.push(limit, offset);
@@ -175,6 +216,7 @@ if (size) {
   const productResult = await pool.query(baseQuery, values);
   const products = productResult.rows;
 
+  // Fetch variants + reviews for each product
   for (let product of products) {
     const variantResult = await pool.query(
       `SELECT * FROM product_variants WHERE product_id = $1`,
@@ -186,16 +228,16 @@ if (size) {
       `SELECT rating FROM reviews WHERE product_id = $1`,
       [product.id]
     );
-    const ratings = reviewResult.rows.map(r => r.rating);
+    const ratings = reviewResult.rows.map((r) => r.rating);
 
     const avgRating =
       ratings.length > 0
         ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length).toFixed(1)
         : null;
 
-    product.variants = variants.map(variant => ({
+    product.variants = variants.map((variant) => ({
       ...variant,
-      average_rating: avgRating
+      average_rating: avgRating,
     }));
   }
 

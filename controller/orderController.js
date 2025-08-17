@@ -143,4 +143,35 @@ exports.getOrdersByUserId = async (req, res) => {
   }
 };
 
+exports.getDeliveredOrdersByUserId = async (req, res) => {
+  const { id } = req.params; // user ID
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  try {
+    const result = await Order.getDeliveredOrdersByUserId(id, limit, offset);
+    const totalResult = await Order.getDeliveredOrdersCountByUserId(id);
+
+    if (!result.rows.length) {
+      return res.status(404).json({ msg: "No delivered orders found for this user" });
+    }
+
+    const totalOrders = parseInt(totalResult.rows[0].count, 10);
+    const hasMore = offset + result.rows.length < totalOrders;
+
+    res.json({
+      orders: result.rows,
+      page,
+      limit,
+      totalOrders,
+      hasMore,
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: "Failed to fetch delivered orders" });
+  }
+};
+
+
 

@@ -1,25 +1,79 @@
+const pool = require('../db');
 const wishlistModel = require('../models/wishlistModel');
 
 exports.addToWishlist = async (req, res) => {
-  const { product_id } = req.body;
+  const { product_id, variant_id } = req.body;
   const user_id = req.user.id;
 
+  if (!product_id || !variant_id) {
+    return res.status(400).json({ error: "product_id and variant_id are required" });
+  }
+
   try {
-    await wishlistModel.addToWishlist(user_id, product_id);
-    res.status(200).json({ message: 'Added to wishlist' });
+    // Check if already in wishlist
+    const existing = await pool.query(
+      `SELECT id FROM wishlist WHERE user_id = $1 AND variant_id = $2`,
+      [user_id, variant_id]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: "Product already in wishlist" });
+    }
+
+    await wishlistModel.addToWishlist(user_id, product_id, variant_id);
+    res.status(200).json({ message: "Added to wishlist" });
+
   } catch (err) {
-    res.status(500).json({ error: 'Error adding to wishlist' });
+    console.error("Error adding to wishlist:", err);
+    res.status(500).json({ error: "Error adding to wishlist" });
   }
 };
 
 exports.getUserWishlist = async (req, res) => {
   const user_id = req.user.id;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 12;
 
   try {
-    const result = await wishlistModel.getUserWishlist(user_id);
-    res.json(result.rows);
+    const wishlistData = await wishlistModel.getUserWishlist(user_id, page, limit);
+
+    res.status(200).json(wishlistData); 
+    // wishlistData will have { products, totalCount, page, totalPages }
   } catch (err) {
+    console.error("Error fetching wishlist:", err);
     res.status(500).json({ error: 'Error fetching wishlist' });
+  }
+};
+
+exports.removeFromUserWishlist = async (req, res) => {
+  const { variant_id } = req.body;
+  const user_id = req.user.id;
+
+  if (!variant_id) {
+    return res.status(400).json({ error: "variant_id is required" });
+  }
+
+  try {
+    // Check if exists
+    const existing = await pool.query(
+      `SELECT id FROM wishlist WHERE user_id = $1 AND variant_id = $2`,
+      [user_id, variant_id]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: "Item not found in wishlist" });
+    }
+
+    // Delete
+    await pool.query(
+      `DELETE FROM wishlist WHERE user_id = $1 AND variant_id = $2`,
+      [user_id, variant_id]
+    );
+
+    res.status(200).json({ message: "Removed from wishlist" });
+  } catch (err) {
+    console.error("Error removing from wishlist:", err);
+    res.status(500).json({ error: "Error removing from wishlist" });
   }
 };
 

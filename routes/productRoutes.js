@@ -6,6 +6,7 @@ const {
   createProduct,
   updateProduct,
   deleteProduct,
+  getRelatedProducts,
 } = require('../controller/productController');
 const { protect } = require('../middleware/authMiddleware');
 const { isAdmin } = require('../middleware/roleMiddleware');
@@ -14,8 +15,9 @@ const upload = multer({ dest: 'uploads/' });
 const { getVariantsByProductId } = require('../controller/productController');
 
 router.get('/', getProducts);
-// router.get('/:id', getProductById);
+router.get('/product/:id', getProductById);
 router.get('/:id/variants', getVariantsByProductId);
+router.get('/related/:variantId', getRelatedProducts);
 
 router.post('/admin/products', protect, isAdmin, upload.single('image'), createProduct);
 router.put('/admin/products/:id', protect, isAdmin,upload.single('image'), updateProduct);

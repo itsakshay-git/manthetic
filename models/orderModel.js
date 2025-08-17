@@ -212,5 +212,68 @@ exports.getOrdersCountByUserId = (userId) =>
 
 
 
+// Get paginated delivered orders
+// Get paginated delivered orders with reviewed info
+exports.getDeliveredOrdersByUserId = (userId, limit, offset) =>
+  pool.query(`
+    SELECT 
+      o.id,
+      o.customer_id,
+      u.name AS customer_name,
+      u.email AS customer_email,
+      o.status,
+      o.payment_status,
+      o.total_amount,
+      o.created_at,
+      o.updated_at,
+      (
+        SELECT json_agg(
+          json_build_object(
+            'id', oi.id,
+            'product_id', oi.product_id,
+            'variant_id', oi.variant_id,
+            'quantity', oi.quantity,
+            'price', (
+              SELECT so->>'price'
+              FROM jsonb_array_elements(pv.size_options) so
+              LIMIT 1
+            ),
+            'size', (
+              SELECT so->>'size'
+              FROM jsonb_array_elements(pv.size_options) so
+              LIMIT 1
+            ),
+            'product_name', p.title,
+            'variant_name', pv.name,
+            'images', pv.images,
+            'reviewed', EXISTS (
+              SELECT 1 
+              FROM reviews r 
+              WHERE r.user_id = $1 
+                AND r.product_variant_id = oi.variant_id
+            )
+          )
+        )
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        JOIN product_variants pv ON pv.id = oi.variant_id
+        WHERE oi.order_id = o.id
+      ) AS items
+    FROM orders o
+    LEFT JOIN users u ON u.id = o.customer_id
+    WHERE o.customer_id = $1
+      AND o.status = 'DELIVERED'
+    ORDER BY o.created_at DESC
+    LIMIT $2 OFFSET $3;
+  `, [userId, limit, offset]);
 
+
+// Total count of delivered orders for this user
+exports.getDeliveredOrdersCountByUserId = (userId) =>
+  pool.query(`
+    SELECT COUNT(*) 
+    FROM orders 
+    WHERE customer_id = $1 
+      AND status = 'DELIVERED';
+  `, [userId]);
 
