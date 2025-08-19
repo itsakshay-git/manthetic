@@ -8,6 +8,7 @@ const corsOptions = {
         const allowedOrigins = [
             "http://localhost:5173",
             "https://manthetic-admin.vercel.app",
+            "https://manthetic-storefront.vercel.app",
             "https://manthetic.onrender.com"
         ];
 
