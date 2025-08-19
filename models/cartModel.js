@@ -1,91 +1,104 @@
-const pool = require('../db');
+const { PrismaClient } = require('@prisma/client');
 
-// exports.getCartItemsByUserId = async (userId) => {
-//   const result = await pool.query(`
-//     SELECT ci.id, ci.quantity, 
-//            pv.size_options, pv.images,
-//            p.title AS product_title
-//     FROM cart_items ci
-//     JOIN product_variants pv ON ci.variant_id = pv.id
-//     JOIN products p ON pv.product_id = p.id
-//     WHERE ci.user_id = $1
-//   `, [userId]);
-
-//   return result.rows;
-// };
-
+const prisma = new PrismaClient();
 
 exports.getCartItemsByUserId = async (userId) => {
-  const result = await pool.query(`
-    SELECT 
-      ci.id, 
-      ci.quantity,
-      ci.selected_size,
-      ci.selected_price,
-      pv.name AS variant_name,
-      pv.images,
-      p.title AS product_title
-    FROM cart_items ci
-    JOIN product_variants pv ON ci.variant_id = pv.id
-    JOIN products p ON pv.product_id = p.id
-    WHERE ci.user_id = $1
-  `, [userId]);
+  const cartItems = await prisma.cartItem.findMany({
+    where: { userId: parseInt(userId) },
+    include: {
+      variant: {
+        include: {
+          product: {
+            select: {
+              title: true
+            }
+          }
+        }
+      }
+    }
+  });
 
-  return result.rows;
+  // Map the result to match the expected format
+  const mappedItems = cartItems.map(item => {
+
+    return {
+      id: item.id,
+      variant_id: item.variantId, // This should match the Prisma field name
+      quantity: item.quantity,
+      selected_size: item.selectedSize,
+      selected_price: item.selectedPrice,
+      variant_name: item.variant?.name,
+      images: item.variant?.images || [],
+      product_title: item.variant?.product?.title
+    };
+  });
+
+  return mappedItems;
 };
 
-// exports.getExistingCartItem = async (userId, variantId) => {
-//   const result = await pool.query(
-//     'SELECT * FROM cart_items WHERE user_id = $1 AND variant_id = $2',
-//     [userId, variantId]
-//   );
-//   return result.rows[0];
-// };
-
-// exports.insertCartItem = async (userId, variantId, quantity) => {
-//   const result = await pool.query(
-//     'INSERT INTO cart_items (user_id, variant_id, quantity) VALUES ($1, $2, $3) RETURNING *',
-//     [userId, variantId, quantity]
-//   );
-//   return result.rows[0];
-// };
-
 exports.getExistingCartItem = async (userId, variantId, selectedSize) => {
-  const result = await pool.query(
-    'SELECT * FROM cart_items WHERE user_id = $1 AND variant_id = $2 AND selected_size = $3',
-    [userId, variantId, selectedSize]
-  );
-  return result.rows[0];
+  const result = await prisma.cartItem.findFirst({
+    where: {
+      userId: parseInt(userId),
+      variantId: parseInt(variantId),
+      selectedSize: selectedSize
+    }
+  });
+  return result;
 };
 
 exports.insertCartItem = async (userId, variantId, quantity, selectedSize, selectedPrice) => {
-  const result = await pool.query(
-    'INSERT INTO cart_items (user_id, variant_id, quantity, selected_size, selected_price) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-    [userId, variantId, quantity, selectedSize, selectedPrice]
-  );
-  return result.rows[0];
+  const result = await prisma.cartItem.create({
+    data: {
+      userId: parseInt(userId),
+      variantId: parseInt(variantId),
+      quantity: parseInt(quantity),
+      selectedSize: selectedSize,
+      selectedPrice: parseFloat(selectedPrice)
+    }
+  });
+  return result;
 };
 
 exports.updateCartItemQuantity = async (itemId, quantity, userId) => {
-  const result = await pool.query(
-    'UPDATE cart_items SET quantity = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
-    [quantity, itemId, userId]
-  );
-  return result.rows[0];
+  const result = await prisma.cartItem.update({
+    where: {
+      id: parseInt(itemId),
+      userId: parseInt(userId)
+    },
+    data: {
+      quantity: parseInt(quantity)
+    }
+  });
+  return result;
 };
 
 exports.incrementCartItemQuantity = async (itemId, quantity) => {
-  const result = await pool.query(
-    'UPDATE cart_items SET quantity = quantity + $1 WHERE id = $2 RETURNING *',
-    [quantity, itemId]
-  );
-  return result.rows[0];
+  // Get current cart item
+  const currentItem = await prisma.cartItem.findUnique({
+    where: { id: parseInt(itemId) }
+  });
+
+  if (!currentItem) {
+    throw new Error('Cart item not found');
+  }
+
+  // Update with incremented quantity
+  const result = await prisma.cartItem.update({
+    where: { id: parseInt(itemId) },
+    data: {
+      quantity: currentItem.quantity + parseInt(quantity)
+    }
+  });
+  return result;
 };
 
 exports.deleteCartItem = async (itemId, userId) => {
-  const result = await pool.query(
-    'DELETE FROM cart_items WHERE id = $1 AND user_id = $2 RETURNING *',
-    [itemId, userId]
-  );
-  return result.rows[0];
+  const result = await prisma.cartItem.delete({
+    where: {
+      id: parseInt(itemId),
+      userId: parseInt(userId)
+    }
+  });
+  return result;
 };

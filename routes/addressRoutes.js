@@ -5,9 +5,11 @@ const {
   getAddresses,
   deleteAddress,
 } = require("../controller/addressController");
+const { validateRequest } = require('../middleware/validationMiddleware');
+const { createAddressSchema } = require('../validation/addressValidation');
 
 
-router.post("/", addAddress);
+router.post("/", validateRequest(createAddressSchema), addAddress);
 router.get("/:user_id", getAddresses);
 router.delete("/:id", deleteAddress);
 

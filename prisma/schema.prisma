@@ -1,0 +1,153 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(100)
+  email     String    @unique @db.VarChar(100)
+  password  String    @db.VarChar(255)
+  role      user_role @default(CUSTOMER)
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("users")
+}
+
+model Address {
+  id      Int     @id @default(autoincrement())
+  userId  Int?    @map("user_id")
+  city    String? @db.VarChar(100)
+  zipcode String? @db.VarChar(20)
+  country String? @db.VarChar(100)
+  state   String? @db.VarChar(100)
+  street  String?
+  phone   String? @db.VarChar(20)
+  orders  Order[]
+
+  @@map("addresses")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String?   @db.VarChar(100)
+  description String?
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  image       String?
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          Int              @id @default(autoincrement())
+  title       String?          @db.VarChar(200)
+  description String?
+  imageUrl    String?          @map("imageurl")
+  categoryId  Int?             @map("category_id")
+  status      String?          @default("ACTIVE") @db.VarChar(20)
+  createdAt   DateTime?        @default(now()) @map("created_at") @db.Timestamp(6)
+  orderItems  OrderItem[]
+  variants    ProductVariant[]
+  category    Category?        @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviews     Review[]
+  wishlist    WishlistItem[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id            Int            @id @default(autoincrement())
+  productId     Int?           @map("product_id")
+  images        String[]
+  isBestSelling Boolean?       @default(false) @map("is_best_selling")
+  name          String?        @db.VarChar(100)
+  description   String?
+  sizeOptions   Json?          @default("[]") @map("size_options")
+  cartItems     CartItem[]
+  order_items   OrderItem[]
+  product       Product?       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviews       Review[]
+  wishlist      WishlistItem[]
+
+  @@map("product_variants")
+}
+
+model Review {
+  id               Int             @id @default(autoincrement())
+  userId           Int?            @map("user_id")
+  productId        Int?            @map("product_id")
+  rating           Int?
+  comment          String?
+  createdAt        DateTime?       @default(now()) @map("created_at") @db.Timestamp(6)
+  productVariantId Int?            @map("product_variant_id")
+  product_variants ProductVariant? @relation(fields: [productVariantId], references: [id], onUpdate: NoAction, map: "fk_reviews_variant")
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("reviews")
+}
+
+model CartItem {
+  id            Int             @id @default(autoincrement())
+  userId        Int?            @map("user_id")
+  variantId     Int?            @map("variant_id")
+  quantity      Int?
+  selectedSize  String?         @map("selected_size") @db.VarChar(10)
+  selectedPrice Decimal?        @map("selected_price") @db.Decimal
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("cart_items")
+}
+
+model WishlistItem {
+  id               Int             @id @default(autoincrement())
+  userId           Int?            @map("user_id")
+  productId        Int?            @map("product_id")
+  createdAt        DateTime?       @default(now()) @map("created_at") @db.Timestamp(6)
+  variant_id       Int?
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product_variants ProductVariant? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, variant_id], map: "wishlist_unique")
+  @@map("wishlist")
+}
+
+model Order {
+  id            Int         @id @default(autoincrement())
+  customerId    Int?        @map("customer_id")
+  status        String?     @default("PENDING") @db.VarChar(20)
+  paymentStatus String?     @default("PENDING") @map("payment_status") @db.VarChar(20)
+  totalAmount   Decimal?    @map("total_amount") @db.Decimal
+  createdAt     DateTime?   @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime?   @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  addressId     Int?        @map("address_id")
+  paymentMethod String?     @map("payment_method") @db.VarChar(20)
+  orderItems    OrderItem[]
+  addresses     Address?    @relation(fields: [addressId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id               Int             @id @default(autoincrement())
+  orderId          Int?            @map("order_id")
+  productId        Int?            @map("product_id")
+  variantId        Int?            @map("variant_id")
+  quantity         Int?
+  price            Decimal?        @db.Decimal
+  order            Order?          @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product_variants ProductVariant? @relation(fields: [variantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("order_items")
+}
+
+enum user_role {
+  ADMIN
+  CUSTOMER
+}

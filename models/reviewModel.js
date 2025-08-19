@@ -1,82 +1,160 @@
-const pool = require('../db');
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient();
 
 exports.addReview = async ({ user_id, product_id, variant_id, rating, comment }) => {
-  await pool.query(
-    `INSERT INTO reviews (user_id, product_id, product_variant_id, rating, comment)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [user_id, product_id, variant_id, rating, comment]
-  );
+
+  const reviewData = {
+    userId: parseInt(user_id),
+    productId: parseInt(product_id),
+    productVariantId: variant_id ? parseInt(variant_id) : null,
+    rating: parseInt(rating),
+    comment
+  };
+
+  const result = await prisma.review.create({
+    data: reviewData
+  });
+
+  return result;
 };
 
 exports.getReviewsByProduct = async (productId) => {
-  const result = await pool.query(
-    `SELECT r.*, u.name AS user_name 
-     FROM reviews r 
-     JOIN users u ON u.id = r.user_id 
-     WHERE r.product_id = $1 
-     ORDER BY r.created_at DESC`,
-    [productId]
+  const reviews = await prisma.review.findMany({
+    where: { productId: parseInt(productId) },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+
+  // Get user names for reviews
+  const reviewsWithUserNames = await Promise.all(
+    reviews.map(async (review) => {
+      if (review.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: review.userId },
+          select: { name: true }
+        });
+        return {
+          ...review,
+          user_name: user?.name || 'Unknown User'
+        };
+      }
+      return {
+        ...review,
+        user_name: 'Unknown User'
+      };
+    })
   );
-  return result.rows;
+
+  return reviewsWithUserNames;
 };
 
 exports.deleteUserReview = async (reviewId, user_id) => {
-  await pool.query(
-    'DELETE FROM reviews WHERE id = $1 AND user_id = $2',
-    [reviewId, user_id]
-  );
+  await prisma.review.deleteMany({
+    where: {
+      id: parseInt(reviewId),
+      userId: parseInt(user_id)
+    }
+  });
 };
 
 exports.getAllReviews = async () => {
-  const result = await pool.query(
-    `SELECT r.*, u.name AS user_name, p.title AS product_name 
-     FROM reviews r 
-     JOIN users u ON u.id = r.user_id 
-     JOIN products p ON p.id = r.product_id 
-     ORDER BY r.created_at DESC`
+  const reviews = await prisma.review.findMany({
+    include: {
+      product: {
+        select: {
+          title: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+
+  // Get user names for reviews
+  const reviewsWithUserNames = await Promise.all(
+    reviews.map(async (review) => {
+      let userName = 'Unknown User';
+      if (review.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: review.userId },
+          select: { name: true }
+        });
+        userName = user?.name || 'Unknown User';
+      }
+
+      return {
+        ...review,
+        user_name: userName,
+        product_name: review.product?.title
+      };
+    })
   );
-  return result.rows;
+
+  return reviewsWithUserNames;
 };
 
 exports.adminDeleteReview = async (reviewId) => {
-  await pool.query('DELETE FROM reviews WHERE id = $1', [reviewId]);
+  await prisma.review.delete({
+    where: { id: parseInt(reviewId) }
+  });
 };
 
 exports.getReviewsByUser = async (userId) => {
-  const result = await pool.query(
-    `SELECT r.*, u.name AS user_name, v.name AS variant_name
-     FROM reviews r
-     JOIN users u ON u.id = r.user_id
-     JOIN product_variants v ON v.id = r.product_variant_id
-     WHERE r.user_id = $1
-     ORDER BY r.created_at DESC`,
-    [userId]
+  const reviews = await prisma.review.findMany({
+    where: { userId: parseInt(userId) },
+    include: {
+      product_variants: {
+        select: {
+          name: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+
+  // Get user names for reviews
+  const reviewsWithUserNames = await Promise.all(
+    reviews.map(async (review) => {
+      let userName = 'Unknown User';
+      if (review.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: review.userId },
+          select: { name: true }
+        });
+        userName = user?.name || 'Unknown User';
+      }
+
+      return {
+        ...review,
+        user_name: userName,
+        variant_name: review.product_variants?.name
+      };
+    })
   );
-  return result.rows;
+
+  return reviewsWithUserNames;
 };
 
 // Update a review
 exports.updateReview = async (reviewId, { rating, comment }) => {
-  const fields = [];
-  const values = [];
-  let index = 1;
+  const updateData = {};
 
   if (rating !== undefined) {
-    fields.push(`rating = $${index++}`);
-    values.push(rating);
+    updateData.rating = parseInt(rating);
   }
   if (comment !== undefined) {
-    fields.push(`comment = $${index++}`);
-    values.push(comment);
+    updateData.comment = comment;
   }
-  values.push(reviewId); // for WHERE clause
 
-  const query = `
-    UPDATE reviews
-    SET ${fields.join(", ")}
-    WHERE id = $${index}
-    RETURNING *;
-  `;
-  const result = await pool.query(query, values);
-  return result.rows[0];
+  const result = await prisma.review.update({
+    where: { id: parseInt(reviewId) },
+    data: updateData
+  });
+
+  return result;
 };

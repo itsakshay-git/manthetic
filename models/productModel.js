@@ -1,109 +1,6 @@
-const pool = require('../db');
+const { PrismaClient } = require('@prisma/client');
 
-// exports.getAllProducts = async (search, category) => {
-//   let baseQuery = `
-//     SELECT 
-//       p.*, 
-//       c.name AS category_name, 
-//       c.description AS category_description
-//     FROM products p
-//     LEFT JOIN categories c ON p.category_id = c.id
-//   `;
-
-//   let conditions = [];
-//   let values = [];
-
-//   if (search) {
-//     conditions.push(`LOWER(p.title) LIKE $${values.length + 1}`);
-//     values.push(`%${search.toLowerCase()}%`);
-//   }
-
-//   if (category) {
-//     conditions.push(`p.category_id = $${values.length + 1}`);
-//     values.push(category);
-//   }
-
-//   if (conditions.length) {
-//     baseQuery += ' WHERE ' + conditions.join(' AND ');
-//   }
-
-//   const productResult = await pool.query(baseQuery, values);
-//   const products = productResult.rows;
-
-//   for (let product of products) {
-//     const variantResult = await pool.query(
-//       `SELECT * FROM product_variants WHERE product_id = $1`,
-//       [product.id]
-//     );
-//     product.variants = variantResult.rows;
-//   }
-
-//   return products;
-// };
-
-
-// exports.getAllProducts = async (search, category) => {
-//   let baseQuery = `
-//     SELECT 
-//       p.*, 
-//       c.name AS category_name, 
-//       c.description AS category_description
-//     FROM products p
-//     LEFT JOIN categories c ON p.category_id = c.id
-//   `;
-
-//   let conditions = [];
-//   let values = [];
-
-//   if (search) {
-//     conditions.push(`LOWER(p.title) LIKE $${values.length + 1}`);
-//     values.push(`%${search.toLowerCase()}%`);
-//   }
-
-//   if (category) {
-//     conditions.push(`p.category_id = $${values.length + 1}`);
-//     values.push(category);
-//   }
-
-//   if (conditions.length) {
-//     baseQuery += ' WHERE ' + conditions.join(' AND ');
-//   }
-
-//   const productResult = await pool.query(baseQuery, values);
-//   const products = productResult.rows;
-
-//   for (let product of products) {
-//     // Fetch all variants for this product
-//     const variantResult = await pool.query(
-//       `SELECT * FROM product_variants WHERE product_id = $1`,
-//       [product.id]
-//     );
-//     const variants = variantResult.rows;
-
-//     // Fetch all reviews for this product
-//     const reviewResult = await pool.query(
-//       `SELECT rating FROM reviews WHERE product_id = $1`,
-//       [product.id]
-//     );
-//     const ratings = reviewResult.rows.map(r => r.rating);
-
-//     // Calculate average rating for the product overall
-//     const avgRating =
-//       ratings.length > 0
-//         ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length).toFixed(1)
-//         : null;
-
-//     // Add average rating to each variant
-//     product.variants = variants.map(variant => ({
-//       ...variant,
-//       average_rating: avgRating
-//     }));
-//   }
-
-//   return products;
-// };
-
-// controllers/products.js
+const prisma = new PrismaClient();
 
 exports.getAllProducts = async (
   search,
@@ -115,209 +12,276 @@ exports.getAllProducts = async (
   page = 1,
   limit = 12
 ) => {
-
-  let baseQuery = `
-    SELECT 
-      p.*, 
-      c.name AS category_name, 
-      c.description AS category_description
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-  `;
-
-  let conditions = [];
-  let values = [];
+  const where = {};
 
   // 🔍 Search: match product title OR variant name
   if (search) {
-    conditions.push(`(
-      LOWER(p.title) LIKE $${values.length + 1}
-      OR EXISTS (
-        SELECT 1
-        FROM product_variants pv
-        WHERE pv.product_id = p.id
-          AND LOWER(pv.name) LIKE $${values.length + 1}
-      )
-    )`);
-    values.push(`%${search.toLowerCase()}%`);
+    where.OR = [
+      {
+        title: {
+          contains: search,
+          mode: 'insensitive'
+        }
+      },
+      {
+        variants: {
+          some: {
+            name: {
+              contains: search,
+              mode: 'insensitive'
+            }
+          }
+        }
+      }
+    ];
   }
 
   if (category) {
-    conditions.push(`p.category_id = $${values.length + 1}`);
-    values.push(category);
+    where.categoryId = parseInt(category);
   }
-
-  // Reusable safe stock expression
-  const stockIntExpr = `
-    CASE 
-      WHEN (opt->>'stock') ~ '^-?\\d+$' THEN (opt->>'stock')::int
-      ELSE 0
-    END
-  `;
 
   if (is_best_selling === "true") {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM product_variants pv 
-      WHERE pv.product_id = p.id AND pv.is_best_selling = true
-    )`);
+    where.variants = {
+      some: {
+        isBestSelling: true
+      }
+    };
   }
 
-  // 🟢 In Stock
+  // 🟢 In Stock - Check if any variant has stock > 0
   if (in_stock === "true") {
-    conditions.push(`EXISTS (
-      SELECT 1
-      FROM product_variants pv
-      CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) AS opt
-      WHERE pv.product_id = p.id
-        AND ${stockIntExpr} > 0
-    )`);
-  } 
-  // 🔴 Out of Stock
+    where.variants = {
+      some: {
+        sizeOptions: {
+          path: ['$[*].stock'],
+          gte: 1
+        }
+      }
+    };
+  }
+  // 🔴 Out of Stock - Check if no variant has stock > 0
   else if (out_of_stock === "true") {
-    conditions.push(`NOT EXISTS (
-      SELECT 1
-      FROM product_variants pv
-      CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) AS opt
-      WHERE pv.product_id = p.id
-        AND ${stockIntExpr} > 0
-    )`);
+    where.variants = {
+      none: {
+        sizeOptions: {
+          path: ['$[*].stock'],
+          gt: 0
+        }
+      }
+    };
   }
 
-  // 📏 Size filter
-  if (size) {
-    conditions.push(`EXISTS (
-      SELECT 1
-      FROM product_variants pv
-      CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) AS opt
-      WHERE pv.product_id = p.id
-        AND LOWER(opt->>'size') = LOWER($${values.length + 1})
-    )`);
-    values.push(size);
+  // 📏 Size filter - We'll handle this after the query since Prisma JSONB filtering is complex
+  let sizeFilter = size;
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const [products, totalCount] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: {
+        category: {
+          select: {
+            name: true,
+            description: true
+          }
+        },
+        variants: {
+          include: {
+            reviews: {
+              select: {
+                rating: true,
+                comment: true,
+                createdAt: true,
+                userId: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      },
+      skip,
+      take: parseInt(limit)
+    }),
+    prisma.product.count({ where })
+  ]);
+
+  // Filter by size if specified (after the query since Prisma JSONB filtering is complex)
+  let filteredProducts = products;
+  if (sizeFilter) {
+    filteredProducts = products.filter(product => {
+      return product.variants.some(variant => {
+        if (variant.sizeOptions && Array.isArray(variant.sizeOptions)) {
+          return variant.sizeOptions.some(option => option.size === sizeFilter);
+        }
+        return false;
+      });
+    });
   }
 
-  // Build WHERE
-  if (conditions.length) {
-    baseQuery += " WHERE " + conditions.join(" AND ");
-  }
-
-  // Total count for pagination
-  let countQuery = `SELECT COUNT(DISTINCT p.id) FROM products p`;
-  if (conditions.length) {
-    countQuery += " WHERE " + conditions.join(" AND ");
-  }
-  const countResult = await pool.query(countQuery, values);
-  const totalCount = parseInt(countResult.rows[0].count);
-
-  // Pagination
-  const offset = (page - 1) * limit;
-  baseQuery += ` ORDER BY p.created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
-  values.push(limit, offset);
-
-  const productResult = await pool.query(baseQuery, values);
-  const products = productResult.rows;
-
-  // Fetch variants + reviews for each product
-  for (let product of products) {
-    const variantResult = await pool.query(
-      `SELECT * FROM product_variants WHERE product_id = $1`,
-      [product.id]
+  // Calculate average rating for each product
+  const productsWithRating = filteredProducts.map(product => {
+    const allRatings = product.variants.flatMap(variant =>
+      variant.reviews.map(review => review.rating)
     );
-    const variants = variantResult.rows;
 
-    const reviewResult = await pool.query(
-      `SELECT rating FROM reviews WHERE product_id = $1`,
-      [product.id]
-    );
-    const ratings = reviewResult.rows.map((r) => r.rating);
+    const avgRating = allRatings.length > 0
+      ? (allRatings.reduce((sum, rating) => sum + rating, 0) / allRatings.length).toFixed(1)
+      : null;
 
-    const avgRating =
-      ratings.length > 0
-        ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length).toFixed(1)
-        : null;
-
-    product.variants = variants.map((variant) => ({
+    // Add average rating to each variant
+    const variantsWithRating = product.variants.map(variant => ({
       ...variant,
-      average_rating: avgRating,
+      average_rating: avgRating
     }));
-  }
+
+    return {
+      ...product,
+      variants: variantsWithRating
+    };
+  });
+
+  // Update total count for filtered results
+  const finalTotalCount = sizeFilter ? productsWithRating.length : totalCount;
 
   return {
-    products,
-    totalCount,
+    products: productsWithRating,
+    totalCount: finalTotalCount,
     page,
-    totalPages: Math.ceil(totalCount / limit),
+    totalPages: Math.ceil(finalTotalCount / parseInt(limit)),
   };
 };
 
 
 exports.getProductById = async (id) => {
-  const productResult = await pool.query(`
-    SELECT 
-      p.*, 
-      c.name AS category_name, 
-      c.description AS category_description
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.id = $1
-  `, [id]);
-
-  const product = productResult.rows[0];
-
-  if (product) {
-    const variantResult = await pool.query(
-      `SELECT * FROM product_variants WHERE product_id = $1`,
-      [product.id]
-    );
-    product.variants = variantResult.rows;
-  }
+  const product = await prisma.product.findUnique({
+    where: { id: parseInt(id) },
+    include: {
+      category: {
+        select: {
+          name: true,
+          description: true
+        }
+      },
+      variants: {
+        include: {
+          reviews: {
+            select: {
+              rating: true,
+              comment: true,
+              createdAt: true,
+              userId: true
+            }
+          }
+        }
+      },
+      reviews: {
+        select: {
+          rating: true,
+          comment: true,
+          createdAt: true,
+          userId: true
+        }
+      }
+    }
+  });
 
   return product;
 };
 
 
 exports.getVariantsByProductId = async (productId) => {
-  const result = await pool.query(
-    `SELECT * FROM product_variants WHERE product_id = $1`,
-    [productId]
-  );
+  const result = await prisma.productVariant.findMany({
+    where: { productId: parseInt(productId) }
+  });
 
-  return result.rows;
+  return result;
 };
 
 
 exports.createProduct = async ({ title, description, imageurl, category_id, status = 'ACTIVE' }) => {
-  const result = await pool.query(
-    `INSERT INTO products (title, description, imageurl, category_id, status)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [title, description, imageurl, category_id, status]
-  );
-  return result.rows[0];
+  const result = await prisma.product.create({
+    data: {
+      title,
+      description,
+      imageUrl: imageurl,
+      categoryId: parseInt(category_id),
+      status
+    }
+  });
+  return result;
 };
 
 exports.updateProduct = async (id, { title, description, imageurl, category_id, status }) => {
-  const result = await pool.query(
-    `UPDATE products SET title=$1, description=$2, imageurl=$3, category_id=$4, status=$5 WHERE id=$6 RETURNING *`,
-    [title, description, imageurl, category_id, status, id]
-  );
-  return result.rows[0];
+  const result = await prisma.product.update({
+    where: { id: parseInt(id) },
+    data: {
+      title,
+      description,
+      imageUrl: imageurl,
+      categoryId: category_id ? parseInt(category_id) : undefined,
+      status
+    }
+  });
+  return result;
 };
 
 exports.deleteProduct = async (id) => {
-  console.log(id)
-  const client = await pool.connect();
+  console.log(id);
 
   try {
-    await client.query("BEGIN");
+    await prisma.$transaction(async (tx) => {
+      // Delete variants first (due to foreign key constraint)
+      await tx.productVariant.deleteMany({
+        where: { productId: parseInt(id) }
+      });
 
-    await client.query(`DELETE FROM product_variants WHERE product_id = $1`, [id]);
-
-    await client.query(`DELETE FROM products WHERE id = $1`, [id]);
-
-    await client.query("COMMIT");
+      // Delete the product
+      await tx.product.delete({
+        where: { id: parseInt(id) }
+      });
+    });
   } catch (err) {
-    await client.query("ROLLBACK");
     throw err;
-  } finally {
-    client.release();
   }
+};
+
+// Get reviews for a specific product
+exports.getProductReviews = async (productId) => {
+  const reviews = await prisma.review.findMany({
+    where: { productId: parseInt(productId) },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      createdAt: true,
+      userId: true
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+
+  return reviews;
+};
+
+// Get reviews for a specific product variant
+exports.getVariantReviews = async (variantId) => {
+  const reviews = await prisma.review.findMany({
+    where: { productVariantId: variantId },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      createdAt: true,
+      userId: true
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+
+  return reviews;
 };

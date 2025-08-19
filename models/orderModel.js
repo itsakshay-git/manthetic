@@ -1,279 +1,416 @@
-const pool = require('../db');
+const { PrismaClient } = require('@prisma/client');
 
-exports.getCartItemsByUserId = (userId) =>
-  pool.query(`SELECT * FROM cart_items WHERE user_id = $1`, [userId]);
+const prisma = new PrismaClient();
 
-exports.getVariantDetails = (variantId) =>
-  pool.query(
-    `SELECT product_id, size_options
-     FROM product_variants WHERE id = $1`,
-    [variantId]
-  );
-
-exports.getVariantPriceAndStockBySize = (variantId, size) => {
-  return pool.query(
-    `SELECT 
-        (elem->>'price')::numeric AS price,
-        (elem->>'stock')::int AS stock,
-        pv.product_id
-     FROM product_variants pv
-     CROSS JOIN LATERAL jsonb_array_elements(pv.size_options) elem
-     WHERE pv.id = $1
-       AND LOWER(TRIM(elem->>'size')) = LOWER(TRIM($2))`,
-    [variantId, size.trim()]
-  );
+exports.getCartItemsByUserId = async (userId) => {
+  const cartItems = await prisma.cartItem.findMany({
+    where: { userId: parseInt(userId) }
+  });
+  return { rows: cartItems };
 };
 
-exports.updateOrderTotal = (orderId, totalAmount) => {
-  return pool.query(
-    `UPDATE orders SET total_amount = $2 WHERE id = $1`,
-    [orderId, totalAmount]
-  );
+exports.getVariantDetails = async (variantId) => {
+  const variant = await prisma.productVariant.findUnique({
+    where: { id: parseInt(variantId) },
+    select: {
+      productId: true,
+      sizeOptions: true
+    }
+  });
+  return { rows: [variant] };
 };
 
+exports.getVariantPriceAndStockBySize = async (variantId, size) => {
+
+  if (!variantId) {
+    console.error('variantId is missing or undefined');
+    return { rows: [] };
+  }
+
+  const variant = await prisma.productVariant.findUnique({
+    where: { id: parseInt(variantId) },
+    select: {
+      sizeOptions: true,
+      productId: true
+    }
+  });
+
+  if (!variant || !variant.sizeOptions) {
+    return { rows: [] };
+  }
+
+  const sizeOptions = Array.isArray(variant.sizeOptions) ? variant.sizeOptions : [];
+  const matchingSize = sizeOptions.find(option =>
+    option.size && option.size.toLowerCase().trim() === size.toLowerCase().trim()
+  );
+
+  if (matchingSize) {
+    return {
+      rows: [{
+        price: parseFloat(matchingSize.price),
+        stock: parseInt(matchingSize.stock),
+        product_id: variant.productId
+      }]
+    };
+  }
+
+  return { rows: [] };
+};
+
+exports.updateOrderTotal = async (orderId, totalAmount) => {
+  const result = await prisma.order.update({
+    where: { id: parseInt(orderId) },
+    data: { totalAmount: parseFloat(totalAmount) }
+  });
+  return { rows: [result] };
+};
 
 exports.reduceStock = async (variantId, size, quantity) => {
-  await pool.query(
-    `UPDATE product_variants
-     SET size_options = jsonb_set(
-       size_options,
-       ('{' || idx || ',stock}')::text[],
-       ((size_options -> (idx::int) ->> 'stock')::int - $1)::text::jsonb
-     )
-     FROM (
-       SELECT ord - 1 AS idx
-       FROM product_variants,
-            jsonb_array_elements(size_options) WITH ORDINALITY arr(elem, ord)
-       WHERE id = $2
-         AND elem @> jsonb_build_object('size', $3::text)
-     ) sub
-     WHERE id = $2;`,
-    [quantity, variantId, size]
-  );
+  const variant = await prisma.productVariant.findUnique({
+    where: { id: parseInt(variantId) },
+    select: { sizeOptions: true }
+  });
+
+  if (!variant || !variant.sizeOptions) {
+    throw new Error('Variant not found or no size options');
+  }
+
+  const sizeOptions = Array.isArray(variant.sizeOptions) ? variant.sizeOptions : [];
+  const updatedSizeOptions = sizeOptions.map(option => {
+    if (option.size && option.size.toLowerCase().trim() === size.toLowerCase().trim()) {
+      return {
+        ...option,
+        stock: Math.max(0, parseInt(option.stock) - parseInt(quantity))
+      };
+    }
+    return option;
+  });
+
+  await prisma.productVariant.update({
+    where: { id: parseInt(variantId) },
+    data: { sizeOptions: updatedSizeOptions }
+  });
 };
 
+exports.createOrder = async (customerId, totalAmount, addressId, paymentMethod) => {
+  const result = await prisma.order.create({
+    data: {
+      customerId: parseInt(customerId),
+      totalAmount: parseFloat(totalAmount),
+      status: 'PENDING',
+      paymentStatus: 'PENDING',
+      addressId: parseInt(addressId),
+      paymentMethod
+    }
+  });
+  return { rows: [result] };
+};
 
-exports.createOrder = (customerId, totalAmount, addressId, paymentMethod) =>
-  pool.query(
-    `INSERT INTO orders (customer_id, total_amount, status, payment_status, address_id, payment_method)
-     VALUES ($1, $2, 'PENDING', 'PENDING', $3, $4)
-     RETURNING *`,
-    [customerId, totalAmount, addressId, paymentMethod]
-  );
+exports.addOrderItem = async (orderId, productId, variantId, quantity, price) => {
+  const result = await prisma.orderItem.create({
+    data: {
+      orderId: parseInt(orderId),
+      productId: parseInt(productId),
+      variantId: parseInt(variantId),
+      quantity: parseInt(quantity),
+      price: parseFloat(price)
+    }
+  });
+  return { rows: [result] };
+};
 
+exports.clearCart = async (userId) => {
+  await prisma.cartItem.deleteMany({
+    where: { userId: parseInt(userId) }
+  });
+  return { rows: [] };
+};
 
-exports.addOrderItem = (orderId, productId, variantId, quantity, price) =>
-  pool.query(
-    `INSERT INTO order_items (order_id, product_id, variant_id, quantity, price)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [orderId, productId, variantId, quantity, price]
-  );
+exports.getUserOrders = async (userId) => {
+  const orders = await prisma.order.findMany({
+    where: { customerId: parseInt(userId) },
+    include: {
+      orderItems: true
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
 
+  // Transform to match expected format
+  const transformedOrders = orders.map(order => ({
+    ...order,
+    items: order.orderItems
+  }));
 
-exports.clearCart = (userId) =>
-  pool.query(`DELETE FROM cart_items WHERE user_id = $1`, [userId]);
+  return { rows: transformedOrders };
+};
 
-exports.getUserOrders = (userId) =>
-  pool.query(
-    `SELECT o.*, 
-            (SELECT json_agg(oi) FROM order_items oi WHERE oi.order_id = o.id) as items
-     FROM orders o 
-     WHERE customer_id = $1 
-     ORDER BY created_at DESC`,
-    [userId]
-  );
+exports.getAllOrders = async () => {
+  const orders = await prisma.order.findMany({
+    include: {
+      orderItems: {
+        include: {
+          product: {
+            select: {
+              title: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
 
-exports.getAllOrders = () =>
-  pool.query(`
-    SELECT 
-      o.id,
-      o.customer_id,
-      u.name AS customer_name,
-      o.status,
-      o.payment_status,
-      o.total_amount,
-      o.created_at,
-      o.updated_at,
-      (
-        SELECT json_agg(
-          json_build_object(
-            'id', oi.id,
-            'product_id', oi.product_id,
-            'variant_id', oi.variant_id,
-            'quantity', oi.quantity,
-            'price', oi.price,
-            'product_name', p.title
-          )
-        )
-        FROM order_items oi
-        JOIN products p ON p.id = oi.product_id
-        WHERE oi.order_id = o.id
-      ) AS items
-    FROM orders o
-    LEFT JOIN users u ON u.id = o.customer_id
-    ORDER BY o.created_at DESC;
-  `);
+  // Get customer names for all orders
+  const customerIds = [...new Set(orders.map(order => order.customerId).filter(Boolean))];
+  const customers = await prisma.user.findMany({
+    where: {
+      id: { in: customerIds }
+    },
+    select: {
+      id: true,
+      name: true
+    }
+  });
 
-exports.updateOrderStatus = (status, paymentStatus, orderId) =>
-  pool.query(
-    `UPDATE orders 
-     SET status = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP 
-     WHERE id = $3 RETURNING *`,
-    [status, paymentStatus, orderId]
-  );
+  // Create a map for quick customer lookup
+  const customerMap = customers.reduce((map, customer) => {
+    map[customer.id] = customer.name;
+    return map;
+  }, {});
 
+  // Transform to match expected format
+  const transformedOrders = orders.map(order => ({
+    id: order.id,
+    customer_id: order.customerId,
+    customer_name: customerMap[order.customerId] || 'Unknown Customer',
+    status: order.status,
+    payment_status: order.paymentStatus,
+    total_amount: order.totalAmount,
+    created_at: order.createdAt,
+    updated_at: order.updatedAt,
+    items: order.orderItems.map(item => ({
+      id: item.id,
+      product_id: item.productId,
+      variant_id: item.variantId,
+      quantity: item.quantity,
+      price: item.price,
+      product_name: item.product?.title
+    }))
+  }));
 
-  exports.getOrderById = (orderId) =>
-  pool.query(
-    `
-    SELECT 
-      o.id,
-      o.customer_id,
-      u.name AS customer_name,
-      o.status,
-      o.payment_status,
-      o.total_amount,
-      o.address_id,
-      o.payment_method,
-      o.created_at,
-      o.updated_at,
-      (
-        SELECT json_agg(
-          json_build_object(
-            'id', oi.id,
-            'product_id', oi.product_id,
-            'variant_id', oi.variant_id,
-            'quantity', oi.quantity,
-            'price', oi.price,
-            'product_name', p.title
-          )
-        )
-        FROM order_items oi
-        JOIN products p ON p.id = oi.product_id
-        WHERE oi.order_id = o.id
-      ) AS items
-    FROM orders o
-    LEFT JOIN users u ON u.id = o.customer_id
-    WHERE o.id = $1
-    LIMIT 1
-    `,
-    [orderId]
-  );
+  return { rows: transformedOrders };
+};
 
-exports.getOrdersByUserIdAdmin = (userId, limit, offset) =>
-  pool.query(`
-    SELECT 
-      o.id,
-      o.customer_id,
-      u.name AS customer_name,
-      u.email AS customer_email,
-      o.status,
-      o.payment_status,
-      o.total_amount,
-      o.created_at,
-      o.updated_at,
-      (
-        SELECT json_agg(
-          json_build_object(
-            'id', oi.id,
-            'product_id', oi.product_id,
-            'variant_id', oi.variant_id,
-            'quantity', oi.quantity,
-            'price', (
-              SELECT so->>'price'
-              FROM jsonb_array_elements(pv.size_options) so
-              LIMIT 1
-            ),
-            'size', (
-              SELECT so->>'size'
-              FROM jsonb_array_elements(pv.size_options) so
-              LIMIT 1
-            ),
-            'product_name', p.title,
-            'variant_name', pv.name,
-            'images', pv.images
-          )
-        )
-        FROM order_items oi
-        JOIN products p ON p.id = oi.product_id
-        JOIN product_variants pv ON pv.id = oi.variant_id
-        WHERE oi.order_id = o.id
-      ) AS items
-    FROM orders o
-    LEFT JOIN users u ON u.id = o.customer_id
-    WHERE o.customer_id = $1
-    ORDER BY o.created_at DESC
-    LIMIT $2 OFFSET $3;
-  `, [userId, limit, offset]);
+exports.updateOrderStatus = async (status, paymentStatus, orderId) => {
+  const result = await prisma.order.update({
+    where: { id: parseInt(orderId) },
+    data: {
+      status,
+      paymentStatus,
+      updatedAt: new Date()
+    }
+  });
+  return { rows: [result] };
+};
 
-// Helper to get total orders count
-exports.getOrdersCountByUserId = (userId) =>
-  pool.query(`SELECT COUNT(*) FROM orders WHERE customer_id = $1;`, [userId]);
+exports.getOrderById = async (orderId) => {
+  const order = await prisma.order.findUnique({
+    where: { id: parseInt(orderId) },
+    include: {
+      orderItems: {
+        include: {
+          product: {
+            select: {
+              title: true
+            }
+          }
+        }
+      }
+    }
+  });
 
+  if (!order) {
+    return { rows: [] };
+  }
 
+  // Transform to match expected format
+  const transformedOrder = {
+    id: order.id,
+    customer_id: order.customerId,
+    status: order.status,
+    payment_status: order.paymentStatus,
+    total_amount: order.totalAmount,
+    address_id: order.addressId,
+    payment_method: order.paymentMethod,
+    created_at: order.createdAt,
+    updated_at: order.updatedAt,
+    items: order.orderItems.map(item => ({
+      id: item.id,
+      product_id: item.productId,
+      variant_id: item.variantId,
+      quantity: item.quantity,
+      price: item.price,
+      product_name: item.product?.title
+    }))
+  };
 
-// Get paginated delivered orders
-// Get paginated delivered orders with reviewed info
-exports.getDeliveredOrdersByUserId = (userId, limit, offset) =>
-  pool.query(`
-    SELECT 
-      o.id,
-      o.customer_id,
-      u.name AS customer_name,
-      u.email AS customer_email,
-      o.status,
-      o.payment_status,
-      o.total_amount,
-      o.created_at,
-      o.updated_at,
-      (
-        SELECT json_agg(
-          json_build_object(
-            'id', oi.id,
-            'product_id', oi.product_id,
-            'variant_id', oi.variant_id,
-            'quantity', oi.quantity,
-            'price', (
-              SELECT so->>'price'
-              FROM jsonb_array_elements(pv.size_options) so
-              LIMIT 1
-            ),
-            'size', (
-              SELECT so->>'size'
-              FROM jsonb_array_elements(pv.size_options) so
-              LIMIT 1
-            ),
-            'product_name', p.title,
-            'variant_name', pv.name,
-            'images', pv.images,
-            'reviewed', EXISTS (
-              SELECT 1 
-              FROM reviews r 
-              WHERE r.user_id = $1 
-                AND r.product_variant_id = oi.variant_id
-            )
-          )
-        )
-        FROM order_items oi
-        JOIN products p ON p.id = oi.product_id
-        JOIN product_variants pv ON pv.id = oi.variant_id
-        WHERE oi.order_id = o.id
-      ) AS items
-    FROM orders o
-    LEFT JOIN users u ON u.id = o.customer_id
-    WHERE o.customer_id = $1
-      AND o.status = 'DELIVERED'
-    ORDER BY o.created_at DESC
-    LIMIT $2 OFFSET $3;
-  `, [userId, limit, offset]);
+  return { rows: [transformedOrder] };
+};
 
+exports.getOrdersByUserIdAdmin = async (userId, limit, offset) => {
+  const orders = await prisma.order.findMany({
+    where: { customerId: parseInt(userId) },
+    include: {
+      orderItems: {
+        include: {
+          product: {
+            select: {
+              title: true
+            }
+          },
+          product_variants: {
+            select: {
+              name: true,
+              images: true,
+              sizeOptions: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: parseInt(limit),
+    skip: parseInt(offset)
+  });
 
-// Total count of delivered orders for this user
-exports.getDeliveredOrdersCountByUserId = (userId) =>
-  pool.query(`
-    SELECT COUNT(*) 
-    FROM orders 
-    WHERE customer_id = $1 
-      AND status = 'DELIVERED';
-  `, [userId]);
+  // Transform to match expected format
+  const transformedOrders = orders.map(order => ({
+    id: order.id,
+    customer_id: order.customerId,
+    status: order.status,
+    payment_status: order.paymentStatus,
+    total_amount: order.totalAmount,
+    created_at: order.createdAt,
+    updated_at: order.updatedAt,
+    items: order.orderItems.map((item) => {
+      const sizeOptions = Array.isArray(item.product_variants?.sizeOptions)
+        ? item.product_variants.sizeOptions
+        : [];
+      const firstSizeOption = sizeOptions[0] || {};
+
+      return {
+        id: item.id,
+        product_id: item.productId,
+        variant_id: item.variantId,
+        quantity: item.quantity,
+        price: firstSizeOption.price || item.price,
+        size: firstSizeOption.size,
+        product_name: item.product?.title,
+        variant_name: item.product_variants?.name,
+        images: item.product_variants?.images || []
+      };
+    })
+  }));
+
+  return { rows: transformedOrders };
+};
+
+exports.getOrdersCountByUserId = async (userId) => {
+  const count = await prisma.order.count({
+    where: { customerId: parseInt(userId) }
+  });
+  return { rows: [{ count: count.toString() }] };
+};
+
+exports.getDeliveredOrdersByUserId = async (userId, limit, offset) => {
+  const orders = await prisma.order.findMany({
+    where: {
+      customerId: parseInt(userId),
+      status: 'DELIVERED'
+    },
+    include: {
+      orderItems: {
+        include: {
+          product: {
+            select: {
+              title: true
+            }
+          },
+          product_variants: {
+            select: {
+              name: true,
+              images: true,
+              sizeOptions: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: parseInt(limit),
+    skip: parseInt(offset)
+  });
+
+  // Transform to match expected format and add review info
+  const transformedOrders = await Promise.all(orders.map(async (order) => {
+    const items = await Promise.all(order.orderItems.map(async (item) => {
+      const sizeOptions = Array.isArray(item.product_variants?.sizeOptions)
+        ? item.product_variants.sizeOptions
+        : [];
+      const firstSizeOption = sizeOptions[0] || {};
+
+      // Check if reviewed
+      const review = await prisma.review.findFirst({
+        where: {
+          userId: parseInt(userId),
+          productVariantId: item.variantId
+        }
+      });
+
+      return {
+        id: item.id,
+        product_id: item.productId,
+        variant_id: item.variantId,
+        quantity: item.quantity,
+        price: firstSizeOption.price || item.price,
+        size: firstSizeOption.size,
+        product_name: item.product?.title,
+        variant_name: item.product_variants?.name,
+        images: item.product_variants?.images || [],
+        reviewed: !!review
+      };
+    }));
+
+    return {
+      id: order.id,
+      customer_id: order.customerId,
+      status: order.status,
+      payment_status: order.paymentStatus,
+      total_amount: order.totalAmount,
+      created_at: order.createdAt,
+      updated_at: order.updatedAt,
+      items
+    };
+  }));
+
+  return { rows: transformedOrders };
+};
+
+exports.getDeliveredOrdersCountByUserId = async (userId) => {
+  const count = await prisma.order.count({
+    where: {
+      customerId: parseInt(userId),
+      status: 'DELIVERED'
+    }
+  });
+  return { rows: [{ count: count.toString() }] };
+};
 

@@ -12,14 +12,16 @@ const {
 } = require('../controller/orderController');
 const { protect } = require('../middleware/authMiddleware');
 const { isAdmin } = require('../middleware/roleMiddleware');
+const { validateRequest } = require('../middleware/validationMiddleware');
+const { createOrderSchema, updateOrderStatusSchema } = require('../validation/orderValidation');
 
-router.post('/', protect, createOrder);
+router.post('/', protect, validateRequest(createOrderSchema), createOrder);
 router.get('/', protect, getMyOrders);
 router.get('/:id', protect, getOrderById);
 router.get('/user/:id', protect, getOrdersByUserId);
 router.get('/user/delivered-orders/:id', protect, getDeliveredOrdersByUserId);
 
 router.get('/admin/orders', protect, isAdmin, getAllOrders);
-router.put('/admin/order/:id', protect, isAdmin, updateOrderStatus);
+router.put('/admin/order/:id', protect, isAdmin, validateRequest(updateOrderStatusSchema), updateOrderStatus);
 
 module.exports = router;

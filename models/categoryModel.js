@@ -1,32 +1,48 @@
-const pool = require('../db');
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient();
 
 exports.getAll = async () => {
-  const result = await pool.query('SELECT * FROM categories ORDER BY created_at DESC');
-  return result.rows;
+  const result = await prisma.category.findMany({
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+  return result;
 };
 
 exports.getById = async (id) => {
-  const result = await pool.query('SELECT * FROM categories WHERE id = $1', [id]);
-  return result.rows[0];
+  const result = await prisma.category.findUnique({
+    where: { id: parseInt(id) }
+  });
+  return result;
 };
 
-exports.create = async (name, description) => {
-  const result = await pool.query(
-    'INSERT INTO categories (name, description) VALUES ($1, $2) RETURNING *',
-    [name, description]
-  );
-  return result.rows[0];
+exports.create = async (name, description, imageUrl = null) => {
+  const result = await prisma.category.create({
+    data: {
+      name,
+      description,
+      image: imageUrl
+    }
+  });
+  return result;
 };
 
-exports.update = async (id, name, description) => {
-  const result = await pool.query(
-    `UPDATE categories SET name = $1, description = $2, updated_at = CURRENT_TIMESTAMP 
-     WHERE id = $3 RETURNING *`,
-    [name, description, id]
-  );
-  return result.rows[0];
+exports.update = async (id, name, description, imageUrl = null) => {
+  const result = await prisma.category.update({
+    where: { id: parseInt(id) },
+    data: {
+      name,
+      description,
+      image: imageUrl
+    }
+  });
+  return result;
 };
 
 exports.delete = async (id) => {
-  await pool.query('DELETE FROM categories WHERE id = $1', [id]);
+  await prisma.category.delete({
+    where: { id: parseInt(id) }
+  });
 };

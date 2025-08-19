@@ -1,5 +1,6 @@
 const pool = require('../db');
 const Order = require('../models/orderModel');
+const Cart = require('../models/cartModel');
 
 
 exports.createOrder = async (req, res) => {
@@ -11,12 +12,21 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ msg: "Address ID and payment method are required" });
     }
 
+    // Normalize payment method values from frontend to database format
+    let normalizedPaymentMethod = payment_method;
+    if (payment_method === 'cod') {
+      normalizedPaymentMethod = 'CASH_ON_DELIVERY';
+    } else if (payment_method === 'online') {
+      normalizedPaymentMethod = 'ONLINE_PAYMENT';
+    }
+
+
+
     await client.query("BEGIN");
 
 
-    const cartResult = await Order.getCartItemsByUserId(req.user.id);
-    const cartItems = cartResult.rows;
-    console.log(cartItems)
+    const cartItems = await Cart.getCartItemsByUserId(req.user.id);
+    console.log('Cart items from cart model:', cartItems);
     if (cartItems.length === 0) {
       return res.status(400).json({ msg: "Cart is empty" });
     }
@@ -28,18 +38,22 @@ exports.createOrder = async (req, res) => {
       req.user.id,
       totalAmount,
       address_id,
-      payment_method
+      normalizedPaymentMethod
     );
     const order = orderResult.rows[0];
 
 
     for (const item of cartItems) {
+      console.log('Processing cart item:', item);
+      console.log('Variant ID:', item.variant_id, 'Type:', typeof item.variant_id);
+      console.log('Selected size:', item.selected_size, 'Type:', typeof item.selected_size);
+
       const variantData = await Order.getVariantPriceAndStockBySize(
         item.variant_id,
         item.selected_size
       );
 
-      if (!variantData.rows.length) {
+      if (!variantData.rows || !variantData.rows.length) {
         throw new Error("Invalid size/variant");
       }
 

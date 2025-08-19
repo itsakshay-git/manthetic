@@ -34,8 +34,7 @@ exports.getVariantsById = async (req, res) => {
 
 exports.getAllVariants = async (req, res) => {
   try {
-
-    const variants = await getAllVariantsProducts();
+    const variants = await getAllVariantsProducts(req, res);
     res.json(variants);
   } catch (err) {
     res.status(500).json({ error: 'Error fetching variants' });
@@ -45,8 +44,6 @@ exports.getAllVariants = async (req, res) => {
 exports.createVariant = async (req, res) => {
   try {
     const { product_id, size_options, is_best_selling, name, description } = req.body;
-
-    console.log("test", size_options)
 
     let imageLinks = [];
 
@@ -82,16 +79,18 @@ exports.updateVariant = async (req, res) => {
     const { id } = req.params;
     const {
       size_options,
-      is_best_selling,
       name,
       description,
       existingImages = "[]", // default to empty if not sent
     } = req.body;
 
+    // Get is_best_selling separately to avoid conflict
+    const isBestSelling = req.body.is_best_selling;
+
     // Convert incoming types
     const updatedData = {
       size_options: size_options,
-      is_best_selling: is_best_selling === 'true',
+      is_best_selling: isBestSelling === 'true' || isBestSelling === true,
       name,
       description,
     };
@@ -121,6 +120,8 @@ exports.updateVariant = async (req, res) => {
     if (finalImageList.length > 0) {
       updatedData.images = finalImageList;
     }
+
+    console.log(updatedData);
 
     // Proceed with update in DB
     const updated = await updateVariant(id, updatedData);

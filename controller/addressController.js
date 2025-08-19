@@ -11,6 +11,15 @@ exports.addAddress = async (req, res) => {
     const { user_id, city, zipcode, country, state, street, phone } = req.body;
 
     if (!user_id || !city || !zipcode || !country || !state || !street || !phone) {
+      console.log('Missing fields detected:', {
+        user_id: !!user_id,
+        city: !!city,
+        zipcode: !!zipcode,
+        country: !!country,
+        state: !!state,
+        street: !!street,
+        phone: !!phone
+      });
       return res.status(400).json({ error: "All fields are required" });
     }
 

@@ -3,12 +3,12 @@ const reviewModel = require('../models/reviewModel');
 exports.addReview = async (req, res) => {
   try {
     const user_id = req.user.id;
-    const { product_id, variant_id, rating, comment } = req.body; // variant_id added
+    const { product_id, variant_id, rating, comment } = req.body;
 
     await reviewModel.addReview({ user_id, product_id, variant_id, rating, comment });
     res.status(200).json({ message: 'Review added' });
   } catch (err) {
-    console.error(err);
+    console.error('Error adding review:', err);
     res.status(500).json({ error: 'Error adding review' });
   }
 };

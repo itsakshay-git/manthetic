@@ -1,58 +1,95 @@
-const pool = require('../db');
+const { PrismaClient } = require('@prisma/client');
+const pool = require('../db/index');
+
+const prisma = new PrismaClient();
 
 exports.getTotalRevenue = async () => {
-  const result = await pool.query(`SELECT COALESCE(SUM(total_amount), 0) AS revenue FROM orders`);
-  return result.rows[0].revenue;
+  const result = await prisma.order.aggregate({
+    _sum: {
+      totalAmount: true
+    }
+  });
+  return result._sum.totalAmount || 0;
 };
 
 exports.getTotalOrders = async () => {
-  const result = await pool.query(`SELECT COUNT(*) AS order_count FROM orders`);
-  return result.rows[0].order_count;
+  const result = await prisma.order.count();
+  return result;
 };
 
 exports.getTotalCustomers = async () => {
-  const result = await pool.query(`SELECT COUNT(*) AS customer_count FROM users WHERE role = 'CUSTOMER'`);
-  return result.rows[0].customer_count;
+  const result = await prisma.user.count({
+    where: {
+      role: 'CUSTOMER'
+    }
+  });
+  return result;
 };
 
 exports.getMonthlySalesStats = async () => {
-  const result = await pool.query(`
+  // Use original pool for complex date formatting queries
+  const query = `
     SELECT 
       TO_CHAR(created_at, 'YYYY-MM') AS month,
       SUM(total_amount) AS total_sales,
       COUNT(*) AS total_orders
     FROM orders
-    WHERE status != 'cancelled'
+    WHERE status != 'CANCELLED'
     GROUP BY month
     ORDER BY month DESC
     LIMIT 12
-  `);
-  return result.rows.reverse(); // To return in ascending order
+  `;
+
+  try {
+    const result = await pool.query(query);
+    return result.rows.reverse(); // To return in ascending order
+  } catch (error) {
+    console.error('Error in getMonthlySalesStats:', error);
+    throw error;
+  }
 };
 
 exports.getDailySalesStats = async (days = 30) => {
-  const result = await pool.query(`
+  // Use original pool for complex date formatting queries
+  const query = `
     SELECT 
       TO_CHAR(created_at::date, 'YYYY-MM-DD') AS day,
       SUM(total_amount) AS total_sales,
       COUNT(*) AS total_orders
     FROM orders
     WHERE created_at >= NOW() - INTERVAL '${days} days'
-    AND status != 'cancelled'
+    AND status != 'CANCELLED'
     GROUP BY day
     ORDER BY day ASC
-  `);
-  return result.rows;
+  `;
+
+  try {
+    const result = await pool.query(query);
+    return result.rows;
+  } catch (error) {
+    console.error('Error in getDailySalesStats:', error);
+    throw error;
+  }
 };
 
 exports.getSalesOverview = async () => {
-  const sales = await pool.query(`SELECT SUM(total_amount)::numeric(10,2) AS total_sales FROM orders`);
-  const orders = await pool.query(`SELECT COUNT(*) AS total_orders FROM orders`);
-  const customers = await pool.query(`SELECT COUNT(*) AS total_customers FROM users WHERE role = 'customer'`);
+  const sales = await prisma.order.aggregate({
+    _sum: {
+      totalAmount: true
+    }
+  });
+
+  const orders = await prisma.order.count();
+
+  const customers = await prisma.user.count({
+    where: {
+      role: 'CUSTOMER'
+    }
+  });
 
   return {
-    totalSales: sales.rows[0].total_sales || 0,
-    totalOrders: orders.rows[0].total_orders,
-    totalCustomers: customers.rows[0].total_customers
+    totalSales: sales._sum.totalAmount || 0,
+    totalOrders: orders,
+    totalCustomers: customers
   };
 };
