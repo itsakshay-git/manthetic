@@ -6,9 +6,19 @@ app.use(cors({
     origin: [
         "http://localhost:5173",
         "https://manthetic.onrender.com",
+        "https://manthetic.onrender.com/analytic/admin/dashboard-stats"
     ],
-    credentials: true
-}))
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
+    exposedHeaders: ['x-auth-token'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+}));
+
+// Handle preflight requests
+app.options('*', cors());
+
 app.use(express.json());
 
 app.use('/api/auth', require('./routes/auth'));
