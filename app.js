@@ -12,7 +12,7 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
     exposedHeaders: ['x-auth-token'],
-    preflightContinue: false,
+    // preflightContinue: false,
     optionsSuccessStatus: 204
 }));
 
