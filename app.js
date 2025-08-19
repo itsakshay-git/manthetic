@@ -5,7 +5,7 @@ const app = express();
 app.use(cors({
     origin: [
         "http://localhost:5173",
-        "https://manthetic-admin.vercel.app",
+        "https://manthetic-admin.vercel.app/login",
         "https://manthetic.onrender.com",
         "https://manthetic.onrender.com/analytic/admin/dashboard-stats"
     ],
