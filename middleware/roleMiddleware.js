@@ -1,8 +1,11 @@
 exports.isAdmin = async (req, res, next) => {
-  const pool = require('../db');
-  const result = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.id]);
+  const prisma = require('../db/prisma');
+  const user = await prisma.user.findUnique({
+    where: { id: parseInt(req.user.id) },
+    select: { role: true }
+  });
 
-  if (result.rows[0]?.role !== 'ADMIN') {
+  if (user?.role !== 'ADMIN') {
     return res.status(403).json({ msg: 'Access denied. Admins only.' });
   }
 

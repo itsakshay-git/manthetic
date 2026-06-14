@@ -1,32 +1,24 @@
 const { Pool } = require('pg');
-const dotenv = require('dotenv');
-dotenv.config();
+const { config } = require('../config');
 
-// Parse database connection from environment variables
 const getDatabaseConfig = () => {
-
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+  if (config.databaseUrl) {
+    return {
+      connectionString: config.databaseUrl,
+      ssl: config.nodeEnv === 'production' ? { rejectUnauthorized: false } : false
+    };
   }
 
-  // Fallback to local development
   return {
-    user: 'postgres',
-    host: 'localhost',
-    database: 'manthetic',
-    password: 'admin',
-    port: 5432,
+    user: process.env.PGUSER,
+    host: process.env.PGHOST || 'localhost',
+    database: process.env.PGDATABASE || 'manthetic',
+    password: process.env.PGPASSWORD,
+    port: parseInt(process.env.PGPORT || '5432', 10),
   };
 };
 
-const config = getDatabaseConfig();
-const pool = new Pool(
-  typeof config === 'string'
-    ? {
-      connectionString: config,
-      ssl: false
-    }
-    : config
-);
+const poolConfig = getDatabaseConfig();
+const pool = new Pool(poolConfig);
 
 module.exports = pool;

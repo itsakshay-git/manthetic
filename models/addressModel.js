@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 const createAddress = async (user_id, city, zipcode, country, state, street, phone) => {
   const result = await prisma.address.create({

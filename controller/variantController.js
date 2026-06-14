@@ -8,7 +8,7 @@ const {
 } = require('../models/variantModel');
 const cloudinary = require('../utils/cloudinary');
 const multer = require('multer');
-const fs = require('fs');
+const { cleanupLocalFile, cleanupLocalFiles } = require('../utils/uploadCleanup');
 
 exports.upload = multer({ dest: 'uploads/' });
 
@@ -48,12 +48,17 @@ exports.createVariant = async (req, res) => {
     let imageLinks = [];
 
     if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await cloudinary.uploader.upload(file.path, {
-          folder: 'manthetic/variants',
-        });
-        imageLinks.push(result.secure_url);
-        fs.unlinkSync(file.path);
+      try {
+        cloudinary.ensureConfigured();
+        for (const file of req.files) {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'manthetic/variants',
+          });
+          imageLinks.push(result.secure_url);
+          cleanupLocalFile(file.path);
+        }
+      } finally {
+        cleanupLocalFiles(req.files);
       }
     }
 
@@ -106,12 +111,17 @@ exports.updateVariant = async (req, res) => {
     // Upload new files if any
     let newUploadedImages = [];
     if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await cloudinary.uploader.upload(file.path, {
-          folder: 'manthetic/variants',
-        });
-        newUploadedImages.push(result.secure_url);
-        fs.unlinkSync(file.path);
+      try {
+        cloudinary.ensureConfigured();
+        for (const file of req.files) {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'manthetic/variants',
+          });
+          newUploadedImages.push(result.secure_url);
+          cleanupLocalFile(file.path);
+        }
+      } finally {
+        cleanupLocalFiles(req.files);
       }
     }
 
@@ -120,8 +130,6 @@ exports.updateVariant = async (req, res) => {
     if (finalImageList.length > 0) {
       updatedData.images = finalImageList;
     }
-
-    console.log(updatedData);
 
     // Proceed with update in DB
     const updated = await updateVariant(id, updatedData);

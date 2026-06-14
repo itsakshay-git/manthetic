@@ -34,8 +34,6 @@ exports.login = async (req, res) => {
 exports.adminLogin = async (req, res) => {
   const { email, password } = req.body;
 
-  console.log(email, password)
-
   const user = await userModel.findUserByEmail(email);
 
   if (!user || !(await bcrypt.compare(password, user.password))) {

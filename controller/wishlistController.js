@@ -1,4 +1,3 @@
-const pool = require('../db');
 const wishlistModel = require('../models/wishlistModel');
 
 exports.addToWishlist = async (req, res) => {
@@ -10,13 +9,9 @@ exports.addToWishlist = async (req, res) => {
   }
 
   try {
-    // Check if already in wishlist
-    const existing = await pool.query(
-      `SELECT id FROM wishlist WHERE user_id = $1 AND variant_id = $2`,
-      [user_id, variant_id]
-    );
+    const existing = await wishlistModel.findUserWishlistItem(user_id, variant_id);
 
-    if (existing.rows.length > 0) {
+    if (existing) {
       return res.status(409).json({ error: "Product already in wishlist" });
     }
 
@@ -54,21 +49,13 @@ exports.removeFromUserWishlist = async (req, res) => {
   }
 
   try {
-    // Check if exists
-    const existing = await pool.query(
-      `SELECT id FROM wishlist WHERE user_id = $1 AND variant_id = $2`,
-      [user_id, variant_id]
-    );
+    const existing = await wishlistModel.findUserWishlistItem(user_id, variant_id);
 
-    if (existing.rows.length === 0) {
+    if (!existing) {
       return res.status(404).json({ error: "Item not found in wishlist" });
     }
 
-    // Delete
-    await pool.query(
-      `DELETE FROM wishlist WHERE user_id = $1 AND variant_id = $2`,
-      [user_id, variant_id]
-    );
+    await wishlistModel.removeUserWishlistItem(user_id, variant_id);
 
     res.status(200).json({ message: "Removed from wishlist" });
   } catch (err) {

@@ -10,7 +10,7 @@ router.post('/register', validateRequest(registerSchema), register);
 router.post('/login', validateRequest(loginSchema), login);
 router.post('/admin-login', validateRequest(loginSchema), adminLogin);
 router.get('/me', protect, getMe);
-router.put('/make-admin/:id', protect, makeAdmin);
+router.put('/make-admin/:id', protect, isAdmin, makeAdmin);
 router.put('/update-password', protect, validateRequest(updatePasswordSchema), updatePassword);
 
 module.exports = router;

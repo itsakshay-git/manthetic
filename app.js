@@ -1,22 +1,15 @@
 const express = require('express');
 const cors = require('cors');
+const { config } = require('./config');
+const errorHandler = require('./middleware/errorHandler');
 const app = express();
-
-// Allow multiple origins
-const allowedOrigins = [
-    "http://localhost:5173",
-    "https://manthetic-admin.vercel.app",
-    "https://manthetic-storefront.vercel.app",
-    "https://manthetic.onrender.com"
-];
 
 app.use(
     cors({
         origin: (origin, callback) => {
-            if (!origin || allowedOrigins.includes(origin)) {
+            if (!origin || config.corsOrigins.includes(origin)) {
                 callback(null, true);
             } else {
-                console.log('CORS blocked origin:', origin);
                 callback(new Error("Not allowed by CORS"));
             }
         },
@@ -24,9 +17,7 @@ app.use(
     })
 );
 
-// Test CORS route
 app.get('/test-cors', (req, res) => {
-    console.log('Origin header:', req.headers.origin);
     res.json({ message: 'CORS is working!', origin: req.headers.origin });
 });
 
@@ -44,6 +35,6 @@ app.use('/api/customer', require('./routes/customerRoutes'));
 app.use('/api/analytic', require('./routes/analyticsRoutes'));
 app.use('/api/addresses', require('./routes/addressRoutes'));
 
-
+app.use(errorHandler);
 
 module.exports = app;

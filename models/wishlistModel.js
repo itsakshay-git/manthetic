@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 const addToWishlist = async (userId, productId, variantId) => {
   try {
@@ -19,6 +17,25 @@ const addToWishlist = async (userId, productId, variantId) => {
     }
     throw error;
   }
+};
+
+const findUserWishlistItem = async (userId, variantId) => {
+  return prisma.wishlistItem.findFirst({
+    where: {
+      userId: parseInt(userId),
+      variant_id: parseInt(variantId)
+    }
+  });
+};
+
+const removeUserWishlistItem = async (userId, variantId) => {
+  const result = await prisma.wishlistItem.deleteMany({
+    where: {
+      userId: parseInt(userId),
+      variant_id: parseInt(variantId)
+    }
+  });
+  return { rows: [{ deletedCount: result.count }] };
 };
 
 const getUserWishlist = async (userId, page = 1, limit = 12) => {
@@ -138,7 +155,9 @@ const getAllWishlists = async () => {
 
 module.exports = {
   addToWishlist,
+  findUserWishlistItem,
   getUserWishlist,
+  removeUserWishlistItem,
   removeFromWishlist,
   getAllWishlists,
 };

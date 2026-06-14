@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 exports.getCartItemsByUserId = async (userId) => {
   const cartItems = await prisma.cartItem.findMany({

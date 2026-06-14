@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 exports.getVariantsByProduct = async (product_id) => {
   const result = await prisma.productVariant.findMany({
@@ -11,8 +9,6 @@ exports.getVariantsByProduct = async (product_id) => {
 };
 
 exports.getVariantById = async (id) => {
-  console.log('Fetching variant with ID:', id);
-
   const variant = await prisma.productVariant.findUnique({
     where: { id: parseInt(id) },
     select: {
@@ -30,8 +26,6 @@ exports.getVariantById = async (id) => {
     throw new Error('Variant not found');
   }
 
-  console.log('Found variant:', variant);
-
   // Get reviews for this variant with user names
   const reviews = await prisma.review.findMany({
     where: { productVariantId: parseInt(id) },
@@ -43,17 +37,6 @@ exports.getVariantById = async (id) => {
       rating: true,
       comment: true,
       createdAt: true
-    }
-  });
-
-  // Debug: Check all reviews to see what's in the database
-  const allReviews = await prisma.review.findMany({
-    select: {
-      id: true,
-      productVariantId: true,
-      productId: true,
-      rating: true,
-      comment: true
     }
   });
 

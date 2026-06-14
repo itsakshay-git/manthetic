@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
 const pool = require('../db/index');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 exports.getTotalRevenue = async () => {
   const result = await prisma.order.aggregate({

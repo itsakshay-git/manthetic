@@ -8,18 +8,10 @@ const {
 
 exports.addAddress = async (req, res) => {
   try {
-    const { user_id, city, zipcode, country, state, street, phone } = req.body;
+    const { city, zipcode, country, state, street, phone } = req.body;
+    const user_id = req.user.id;
 
-    if (!user_id || !city || !zipcode || !country || !state || !street || !phone) {
-      console.log('Missing fields detected:', {
-        user_id: !!user_id,
-        city: !!city,
-        zipcode: !!zipcode,
-        country: !!country,
-        state: !!state,
-        street: !!street,
-        phone: !!phone
-      });
+    if (!city || !zipcode || !country || !state || !street || !phone) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
@@ -35,6 +27,10 @@ exports.addAddress = async (req, res) => {
 exports.getAddresses = async (req, res) => {
   try {
     const { user_id } = req.params;
+    if (parseInt(user_id) !== req.user.id) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
     const addresses = await findAddressesByUserId(user_id);
     res.json(addresses);
   } catch (error) {
@@ -51,6 +47,10 @@ exports.deleteAddress = async (req, res) => {
     const address = await findAddressById(id);
     if (!address) {
       return res.status(404).json({ error: "Address not found" });
+    }
+
+    if (address.userId !== req.user.id) {
+      return res.status(403).json({ error: "Access denied" });
     }
 
     await removeAddress(id);

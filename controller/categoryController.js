@@ -1,6 +1,6 @@
 const Category = require('../models/categoryModel');
 const cloudinary = require('../utils/cloudinary');
-const fs = require('fs');
+const { cleanupLocalFile } = require('../utils/uploadCleanup');
 
 // Helper function to extract Cloudinary public ID from URL
 const extractCloudinaryPublicId = (url) => {
@@ -46,7 +46,7 @@ exports.createCategory = async (req, res) => {
     let imageUrl = null;
     if (req.file) {
       try {
-        // Upload to Cloudinary
+        cloudinary.ensureConfigured();
         const result = await cloudinary.uploader.upload(req.file.path, {
           folder: 'manthetic/categories',
           resource_type: 'auto'
@@ -54,23 +54,13 @@ exports.createCategory = async (req, res) => {
 
         imageUrl = result.secure_url;
 
-        // Delete local file after Cloudinary upload
-        fs.unlinkSync(req.file.path);
-        console.log('Local file deleted');
-
       } catch (uploadError) {
         console.error('Cloudinary upload error:', uploadError);
-        // Delete local file if Cloudinary upload fails
-        if (req.file && req.file.path) {
-          fs.unlinkSync(req.file.path);
-        }
         return res.status(500).json({ message: 'Failed to upload image to Cloudinary' });
+      } finally {
+        cleanupLocalFile(req.file.path);
       }
-    } else {
-      console.log('No image provided');
     }
-
-    console.log('Creating category with data:', { name, description, imageUrl });
 
     const category = await Category.create(name, description, imageUrl);
     res.status(201).json(category);
@@ -95,7 +85,7 @@ exports.updateCategory = async (req, res) => {
     let imageUrl = null;
     if (req.file) {
       try {
-        // Upload to Cloudinary
+        cloudinary.ensureConfigured();
         const result = await cloudinary.uploader.upload(req.file.path, {
           folder: 'manthetic/categories',
           resource_type: 'auto'
@@ -103,17 +93,12 @@ exports.updateCategory = async (req, res) => {
 
         imageUrl = result.secure_url;
 
-        // Delete local file after Cloudinary upload
-        fs.unlinkSync(req.file.path);
-        console.log('Local file deleted');
-
         // Delete old image from Cloudinary if it exists
         if (currentCategory.image && currentCategory.image.includes('cloudinary.com')) {
           try {
             const publicId = extractCloudinaryPublicId(currentCategory.image);
             if (publicId) {
               await cloudinary.uploader.destroy(publicId);
-              console.log('Old image deleted from Cloudinary');
             }
           } catch (deleteError) {
             console.error('Error deleting old image from Cloudinary:', deleteError);
@@ -123,14 +108,11 @@ exports.updateCategory = async (req, res) => {
 
       } catch (uploadError) {
         console.error('Cloudinary upload error:', uploadError);
-        // Delete local file if Cloudinary upload fails
-        if (req.file && req.file.path) {
-          fs.unlinkSync(req.file.path);
-        }
         return res.status(500).json({ message: 'Failed to upload image to Cloudinary' });
+      } finally {
+        cleanupLocalFile(req.file.path);
       }
     } else {
-      console.log('No new image provided for update');
       // Keep the existing image if no new image is provided
       imageUrl = currentCategory.image;
     }
@@ -159,7 +141,6 @@ exports.deleteCategory = async (req, res) => {
         const publicId = extractCloudinaryPublicId(currentCategory.image);
         if (publicId) {
           await cloudinary.uploader.destroy(publicId);
-          console.log('Image deleted from Cloudinary');
         }
       } catch (deleteError) {
         console.error('Error deleting image from Cloudinary:', deleteError);

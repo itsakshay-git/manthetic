@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 exports.addReview = async ({ user_id, product_id, variant_id, rating, comment }) => {
 
@@ -51,12 +49,13 @@ exports.getReviewsByProduct = async (productId) => {
 };
 
 exports.deleteUserReview = async (reviewId, user_id) => {
-  await prisma.review.deleteMany({
+  const result = await prisma.review.deleteMany({
     where: {
       id: parseInt(reviewId),
       userId: parseInt(user_id)
     }
   });
+  return result.count;
 };
 
 exports.getAllReviews = async () => {
@@ -141,7 +140,7 @@ exports.getReviewsByUser = async (userId) => {
 };
 
 // Update a review
-exports.updateReview = async (reviewId, { rating, comment }) => {
+exports.updateReview = async (reviewId, userId, { rating, comment }) => {
   const updateData = {};
 
   if (rating !== undefined) {
@@ -151,10 +150,19 @@ exports.updateReview = async (reviewId, { rating, comment }) => {
     updateData.comment = comment;
   }
 
-  const result = await prisma.review.update({
-    where: { id: parseInt(reviewId) },
+  const result = await prisma.review.updateMany({
+    where: {
+      id: parseInt(reviewId),
+      userId: parseInt(userId)
+    },
     data: updateData
   });
 
-  return result;
+  if (!result.count) {
+    return null;
+  }
+
+  return prisma.review.findUnique({
+    where: { id: parseInt(reviewId) }
+  });
 };

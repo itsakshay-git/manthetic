@@ -1,6 +1,121 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../db/prisma');
 
-const prisma = new PrismaClient();
+const buildHttpError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const getSizeOption = (variant, size) => {
+  if (!variant || !size) {
+    return null;
+  }
+
+  const sizeOptions = Array.isArray(variant?.sizeOptions) ? variant.sizeOptions : [];
+  return sizeOptions.find(option =>
+    option.size && option.size.toLowerCase().trim() === size.toLowerCase().trim()
+  );
+};
+
+exports.placeOrder = async (userId, addressId, paymentMethod) => {
+  return prisma.$transaction(async (tx) => {
+    const parsedUserId = parseInt(userId);
+    const parsedAddressId = parseInt(addressId);
+
+    const address = await tx.address.findFirst({
+      where: {
+        id: parsedAddressId,
+        userId: parsedUserId
+      }
+    });
+
+    if (!address) {
+      throw buildHttpError("Address not found", 404);
+    }
+
+    const cartItems = await tx.cartItem.findMany({
+      where: { userId: parsedUserId }
+    });
+
+    if (cartItems.length === 0) {
+      throw buildHttpError("Cart is empty", 400);
+    }
+
+    const order = await tx.order.create({
+      data: {
+        customerId: parsedUserId,
+        totalAmount: 0,
+        status: 'PENDING',
+        paymentStatus: 'PENDING',
+        addressId: parsedAddressId,
+        paymentMethod
+      }
+    });
+
+    let totalAmount = 0;
+
+    for (const item of cartItems) {
+      const variant = await tx.productVariant.findUnique({
+        where: { id: parseInt(item.variantId) },
+        select: {
+          sizeOptions: true,
+          productId: true
+        }
+      });
+
+      const matchingSize = getSizeOption(variant, item.selectedSize);
+      if (!matchingSize) {
+        throw buildHttpError("Invalid size/variant", 400);
+      }
+
+      const price = parseFloat(matchingSize.price);
+      const stock = parseInt(matchingSize.stock);
+      const quantity = parseInt(item.quantity);
+
+      if (stock < quantity) {
+        throw buildHttpError("Insufficient stock", 400);
+      }
+
+      totalAmount += price * quantity;
+
+      const updatedSizeOptions = variant.sizeOptions.map(option => {
+        if (option.size && option.size.toLowerCase().trim() === item.selectedSize.toLowerCase().trim()) {
+          return {
+            ...option,
+            stock: stock - quantity
+          };
+        }
+        return option;
+      });
+
+      await tx.productVariant.update({
+        where: { id: parseInt(item.variantId) },
+        data: { sizeOptions: updatedSizeOptions }
+      });
+
+      await tx.orderItem.create({
+        data: {
+          orderId: order.id,
+          productId: parseInt(variant.productId),
+          variantId: parseInt(item.variantId),
+          quantity,
+          price
+        }
+      });
+    }
+
+    const updatedOrder = await tx.order.update({
+      where: { id: order.id },
+      data: { totalAmount }
+    });
+
+    await tx.cartItem.deleteMany({
+      where: { userId: parsedUserId }
+    });
+
+    return updatedOrder;
+  });
+};
 
 exports.getCartItemsByUserId = async (userId) => {
   const cartItems = await prisma.cartItem.findMany({
@@ -413,4 +528,3 @@ exports.getDeliveredOrdersCountByUserId = async (userId) => {
   });
   return { rows: [{ count: count.toString() }] };
 };
-

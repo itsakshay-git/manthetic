@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 exports.getAllProducts = async (
   search,
@@ -229,8 +227,6 @@ exports.updateProduct = async (id, { title, description, imageurl, category_id, 
 };
 
 exports.deleteProduct = async (id) => {
-  console.log(id);
-
   try {
     await prisma.$transaction(async (tx) => {
       // Delete variants first (due to foreign key constraint)
@@ -284,4 +280,77 @@ exports.getVariantReviews = async (variantId) => {
   });
 
   return reviews;
+};
+
+exports.getRelatedProductsByVariantId = async (variantId) => {
+  const variant = await prisma.productVariant.findUnique({
+    where: { id: parseInt(variantId) },
+    select: {
+      productId: true,
+      product: {
+        select: {
+          categoryId: true
+        }
+      }
+    }
+  });
+
+  if (!variant) {
+    return null;
+  }
+
+  if (!variant.product) {
+    return null;
+  }
+
+  if (!variant.product.categoryId) {
+    return [];
+  }
+
+  const products = await prisma.product.findMany({
+    where: {
+      categoryId: variant.product?.categoryId,
+      id: { not: variant.productId }
+    },
+    include: {
+      category: {
+        select: {
+          name: true,
+          description: true
+        }
+      },
+      variants: {
+        include: {
+          reviews: {
+            select: {
+              rating: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: 8
+  });
+
+  return products.map((product) => {
+    const ratings = product.variants.flatMap((item) =>
+      item.reviews.map((review) => review.rating)
+    );
+    const averageRating = ratings.length
+      ? (ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length).toFixed(1)
+      : null;
+
+    return {
+      ...product,
+      category_name: product.category?.name,
+      category_description: product.category?.description,
+      variants: product.variants.map((item) => ({
+        ...item,
+        average_rating: averageRating
+      }))
+    };
+  });
 };

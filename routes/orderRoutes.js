@@ -6,7 +6,6 @@ const {
   getAllOrders,
   updateOrderStatus,
   getOrderById,
-  getOrderByIdWithUser,
   getOrdersByUserId,
   getDeliveredOrdersByUserId
 } = require('../controller/orderController');
@@ -17,11 +16,11 @@ const { createOrderSchema, updateOrderStatusSchema } = require('../validation/or
 
 router.post('/', protect, validateRequest(createOrderSchema), createOrder);
 router.get('/', protect, getMyOrders);
-router.get('/:id', protect, getOrderById);
-router.get('/user/:id', protect, getOrdersByUserId);
-router.get('/user/delivered-orders/:id', protect, getDeliveredOrdersByUserId);
 
 router.get('/admin/orders', protect, isAdmin, getAllOrders);
 router.put('/admin/order/:id', protect, isAdmin, validateRequest(updateOrderStatusSchema), updateOrderStatus);
+router.get('/user/delivered-orders/:id', protect, getDeliveredOrdersByUserId);
+router.get('/user/:id', protect, getOrdersByUserId);
+router.get('/:id', protect, getOrderById);
 
 module.exports = router;

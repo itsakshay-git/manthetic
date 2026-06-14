@@ -7,10 +7,11 @@ const {
 } = require("../controller/addressController");
 const { validateRequest } = require('../middleware/validationMiddleware');
 const { createAddressSchema } = require('../validation/addressValidation');
+const { protect } = require("../middleware/authMiddleware");
 
 
-router.post("/", validateRequest(createAddressSchema), addAddress);
-router.get("/:user_id", getAddresses);
-router.delete("/:id", deleteAddress);
+router.post("/", protect, validateRequest(createAddressSchema), addAddress);
+router.get("/:user_id", protect, getAddresses);
+router.delete("/:id", protect, deleteAddress);
 
 module.exports = router;

@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const prisma = require('../db/prisma');
 
 const getAllCustomers = async () => {
   const result = await prisma.user.findMany({
@@ -36,7 +34,6 @@ const deleteCustomerById = async (id) => {
 };
 
 const findUserByEmail = async (email) => {
-  console.log(email);
   const result = await prisma.user.findUnique({
     where: { email: email }
   });

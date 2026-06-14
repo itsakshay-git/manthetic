@@ -25,7 +25,11 @@ exports.getReviewsByProduct = async (req, res) => {
 exports.deleteUserReview = async (req, res) => {
   try {
     const user_id = req.user.id;
-    await reviewModel.deleteUserReview(req.params.reviewId, user_id);
+    const deletedCount = await reviewModel.deleteUserReview(req.params.reviewId, user_id);
+    if (!deletedCount) {
+      return res.status(404).json({ error: 'Review not found' });
+    }
+
     res.status(200).json({ message: 'Review deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Error deleting review' });
@@ -53,6 +57,10 @@ exports.adminDeleteReview = async (req, res) => {
 exports.getReviewsByUser = async (req, res) => {
   const userId = req.params.userId;
   try {
+    if (parseInt(userId) !== req.user.id) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
     const reviews = await reviewModel.getReviewsByUser(userId);
     res.json(reviews);
   } catch (err) {
@@ -71,7 +79,11 @@ exports.updateReview = async (req, res) => {
   }
 
   try {
-    const updatedReview = await reviewModel.updateReview(reviewId, { rating, comment });
+    const updatedReview = await reviewModel.updateReview(reviewId, req.user.id, { rating, comment });
+    if (!updatedReview) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
     res.json(updatedReview);
   } catch (err) {
     console.error(err);

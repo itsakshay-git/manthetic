@@ -1,10 +1,7 @@
-const pool = require('../db');
 const Order = require('../models/orderModel');
-const Cart = require('../models/cartModel');
 
 
 exports.createOrder = async (req, res) => {
-  const client = await pool.connect();
   try {
     const { address_id, payment_method } = req.body;
 
@@ -22,65 +19,19 @@ exports.createOrder = async (req, res) => {
 
 
 
-    await client.query("BEGIN");
-
-
-    const cartItems = await Cart.getCartItemsByUserId(req.user.id);
-    console.log('Cart items from cart model:', cartItems);
-    if (cartItems.length === 0) {
-      return res.status(400).json({ msg: "Cart is empty" });
-    }
-
-    let totalAmount = 0;
-
-
-    const orderResult = await Order.createOrder(
+    const order = await Order.placeOrder(
       req.user.id,
-      totalAmount,
       address_id,
       normalizedPaymentMethod
     );
-    const order = orderResult.rows[0];
 
-
-    for (const item of cartItems) {
-      console.log('Processing cart item:', item);
-      console.log('Variant ID:', item.variant_id, 'Type:', typeof item.variant_id);
-      console.log('Selected size:', item.selected_size, 'Type:', typeof item.selected_size);
-
-      const variantData = await Order.getVariantPriceAndStockBySize(
-        item.variant_id,
-        item.selected_size
-      );
-
-      if (!variantData.rows || !variantData.rows.length) {
-        throw new Error("Invalid size/variant");
-      }
-
-      const { price, stock, product_id } = variantData.rows[0];
-      if (stock < item.quantity) {
-        throw new Error("Insufficient stock");
-      }
-
-      totalAmount += Number(price) * item.quantity;
-
-      await Order.reduceStock(item.variant_id, item.selected_size, item.quantity);
-
-      await Order.addOrderItem(order.id, product_id, item.variant_id, item.quantity, price);
-    }
-
-    await Order.updateOrderTotal(order.id, totalAmount);
-
-    await Order.clearCart(req.user.id);
-
-    await client.query("COMMIT");
     res.status(201).json({ msg: "Order placed", order_id: order.id });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error(err.message);
-    res.status(500).json({ msg: "Order failed", error: err.message });
-  } finally {
-    client.release();
+    const status = err.statusCode || 500;
+    if (status === 500) {
+      console.error(err.message);
+    }
+    res.status(status).json({ msg: "Order failed", error: err.message });
   }
 };
 
@@ -99,7 +50,6 @@ exports.getAllOrders = async (req, res) => {
 
 exports.updateOrderStatus = async (req, res) => {
   const { id } = req.params;
-  console.log(id)
   const { status, payment_status } = req.body;
 
 
@@ -119,6 +69,11 @@ exports.getOrderById = async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ msg: 'Order not found' });
     }
+    const order = result.rows[0];
+    if (order.customer_id !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ msg: 'Access denied' });
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err.message);
@@ -134,6 +89,10 @@ exports.getOrdersByUserId = async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
+    if (parseInt(id) !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ msg: "Access denied" });
+    }
+
     const result = await Order.getOrdersByUserIdAdmin(id, limit, offset); // pass pagination
     const totalResult = await Order.getOrdersCountByUserId(id); // total orders count
 
@@ -164,6 +123,10 @@ exports.getDeliveredOrdersByUserId = async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
+    if (parseInt(id) !== req.user.id && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ msg: "Access denied" });
+    }
+
     const result = await Order.getDeliveredOrdersByUserId(id, limit, offset);
     const totalResult = await Order.getDeliveredOrdersCountByUserId(id);
 

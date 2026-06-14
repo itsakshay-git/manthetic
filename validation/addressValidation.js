@@ -2,11 +2,10 @@ const Joi = require('joi');
 
 // Create address validation schema
 const createAddressSchema = Joi.object({
-    user_id: Joi.number().integer().positive().required().messages({
+    user_id: Joi.number().integer().positive().optional().messages({
         'number.base': 'User ID must be a number',
         'number.integer': 'User ID must be an integer',
         'number.positive': 'User ID must be positive',
-        'any.required': 'User ID is required'
     }),
     city: Joi.string().min(2).max(50).required().messages({
         'string.min': 'City must be at least 2 characters long',
