@@ -1,5 +1,10 @@
 const prisma = require('../db/prisma');
 
+const CANCELLABLE_STATUSES = new Set(['PENDING', 'CONFIRMED']);
+const TERMINAL_STATUSES = new Set(['SHIPPED', 'DELIVERED', 'CANCELLED']);
+const CANCEL_WINDOW_HOURS = 24;
+const CANCEL_WINDOW_MS = CANCEL_WINDOW_HOURS * 60 * 60 * 1000;
+
 const buildHttpError = (message, statusCode) => {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -17,6 +22,134 @@ const getSizeOption = (variant, size) => {
   );
 };
 
+const getCancelUntil = (createdAt) => {
+  if (!createdAt) return null;
+  return new Date(new Date(createdAt).getTime() + CANCEL_WINDOW_MS);
+};
+
+const getCancelMeta = (order) => {
+  const status = order?.status || 'PENDING';
+  const cancelUntil = getCancelUntil(order?.createdAt);
+  const now = Date.now();
+
+  if (status === 'CANCELLED') {
+    return {
+      canCancel: false,
+      cancelUntil,
+      cancelUnavailableReason: 'Order cancelled'
+    };
+  }
+
+  if (status === 'SHIPPED') {
+    return {
+      canCancel: false,
+      cancelUntil,
+      cancelUnavailableReason: 'Already shipped'
+    };
+  }
+
+  if (status === 'DELIVERED') {
+    return {
+      canCancel: false,
+      cancelUntil,
+      cancelUnavailableReason: 'Already delivered'
+    };
+  }
+
+  if (!CANCELLABLE_STATUSES.has(status)) {
+    return {
+      canCancel: false,
+      cancelUntil,
+      cancelUnavailableReason: 'Cancellation unavailable'
+    };
+  }
+
+  if (!cancelUntil || now >= cancelUntil.getTime()) {
+    return {
+      canCancel: false,
+      cancelUntil,
+      cancelUnavailableReason: 'Cancellation closed'
+    };
+  }
+
+  return {
+    canCancel: true,
+    cancelUntil,
+    cancelUnavailableReason: null
+  };
+};
+
+const restoreOrderStock = async (tx, orderItems) => {
+  for (const item of orderItems) {
+    if (!item.variantId || !item.selectedSize) {
+      throw buildHttpError('This order cannot be cancelled automatically because item size was not stored.', 409);
+    }
+
+    const variant = await tx.productVariant.findUnique({
+      where: { id: parseInt(item.variantId) },
+      select: { sizeOptions: true }
+    });
+
+    if (!variant || !Array.isArray(variant.sizeOptions)) {
+      throw buildHttpError('Variant stock data not found for cancellation.', 409);
+    }
+
+    let matchedSize = false;
+    const updatedSizeOptions = variant.sizeOptions.map(option => {
+      if (option.size && option.size.toLowerCase().trim() === item.selectedSize.toLowerCase().trim()) {
+        matchedSize = true;
+        return {
+          ...option,
+          stock: parseInt(option.stock || 0) + parseInt(item.quantity || 0)
+        };
+      }
+      return option;
+    });
+
+    if (!matchedSize) {
+      throw buildHttpError(`Size ${item.selectedSize} no longer exists for a cancelled item.`, 409);
+    }
+
+    await tx.productVariant.update({
+      where: { id: parseInt(item.variantId) },
+      data: { sizeOptions: updatedSizeOptions }
+    });
+  }
+};
+
+const transformOrderItem = (item) => {
+  const sizeOptions = Array.isArray(item.product_variants?.sizeOptions)
+    ? item.product_variants.sizeOptions
+    : [];
+  const selectedOption = getSizeOption(item.product_variants, item.selectedSize) || sizeOptions[0] || {};
+
+  return {
+    id: item.id,
+    product_id: item.productId,
+    variant_id: item.variantId,
+    quantity: item.quantity,
+    price: selectedOption.price || item.price,
+    size: item.selectedSize || selectedOption.size,
+    product_name: item.product?.title,
+    variant_name: item.product_variants?.name,
+    images: item.product_variants?.images || []
+  };
+};
+
+const transformUserOrder = (order) => ({
+  id: order.id,
+  customer_id: order.customerId,
+  status: order.status,
+  payment_status: order.paymentStatus,
+  total_amount: order.totalAmount,
+  created_at: order.createdAt,
+  updated_at: order.updatedAt,
+  cancelled_at: order.cancelledAt,
+  cancelled_by: order.cancelledBy,
+  ...getCancelMeta(order),
+  items: order.orderItems.map(transformOrderItem)
+});
+
 exports.placeOrder = async (userId, addressId, paymentMethod) => {
   return prisma.$transaction(async (tx) => {
     const parsedUserId = parseInt(userId);
@@ -30,7 +163,7 @@ exports.placeOrder = async (userId, addressId, paymentMethod) => {
     });
 
     if (!address) {
-      throw buildHttpError("Address not found", 404);
+      throw buildHttpError('Address not found', 404);
     }
 
     const cartItems = await tx.cartItem.findMany({
@@ -38,7 +171,7 @@ exports.placeOrder = async (userId, addressId, paymentMethod) => {
     });
 
     if (cartItems.length === 0) {
-      throw buildHttpError("Cart is empty", 400);
+      throw buildHttpError('Cart is empty', 400);
     }
 
     const order = await tx.order.create({
@@ -65,7 +198,7 @@ exports.placeOrder = async (userId, addressId, paymentMethod) => {
 
       const matchingSize = getSizeOption(variant, item.selectedSize);
       if (!matchingSize) {
-        throw buildHttpError("Invalid size/variant", 400);
+        throw buildHttpError('Invalid size/variant', 400);
       }
 
       const price = parseFloat(matchingSize.price);
@@ -73,7 +206,7 @@ exports.placeOrder = async (userId, addressId, paymentMethod) => {
       const quantity = parseInt(item.quantity);
 
       if (stock < quantity) {
-        throw buildHttpError("Insufficient stock", 400);
+        throw buildHttpError('Insufficient stock', 400);
       }
 
       totalAmount += price * quantity;
@@ -99,7 +232,8 @@ exports.placeOrder = async (userId, addressId, paymentMethod) => {
           productId: parseInt(variant.productId),
           variantId: parseInt(item.variantId),
           quantity,
-          price
+          price,
+          selectedSize: item.selectedSize
         }
       });
     }
@@ -136,7 +270,6 @@ exports.getVariantDetails = async (variantId) => {
 };
 
 exports.getVariantPriceAndStockBySize = async (variantId, size) => {
-
   if (!variantId) {
     console.error('variantId is missing or undefined');
     return { rows: [] };
@@ -221,14 +354,15 @@ exports.createOrder = async (customerId, totalAmount, addressId, paymentMethod) 
   return { rows: [result] };
 };
 
-exports.addOrderItem = async (orderId, productId, variantId, quantity, price) => {
+exports.addOrderItem = async (orderId, productId, variantId, quantity, price, selectedSize) => {
   const result = await prisma.orderItem.create({
     data: {
       orderId: parseInt(orderId),
       productId: parseInt(productId),
       variantId: parseInt(variantId),
       quantity: parseInt(quantity),
-      price: parseFloat(price)
+      price: parseFloat(price),
+      selectedSize
     }
   });
   return { rows: [result] };
@@ -252,9 +386,9 @@ exports.getUserOrders = async (userId) => {
     }
   });
 
-  // Transform to match expected format
   const transformedOrders = orders.map(order => ({
     ...order,
+    ...getCancelMeta(order),
     items: order.orderItems
   }));
 
@@ -279,7 +413,6 @@ exports.getAllOrders = async () => {
     }
   });
 
-  // Get customer names for all orders
   const customerIds = [...new Set(orders.map(order => order.customerId).filter(Boolean))];
   const customers = await prisma.user.findMany({
     where: {
@@ -291,13 +424,11 @@ exports.getAllOrders = async () => {
     }
   });
 
-  // Create a map for quick customer lookup
   const customerMap = customers.reduce((map, customer) => {
     map[customer.id] = customer.name;
     return map;
   }, {});
 
-  // Transform to match expected format
   const transformedOrders = orders.map(order => ({
     id: order.id,
     customer_id: order.customerId,
@@ -307,12 +438,15 @@ exports.getAllOrders = async () => {
     total_amount: order.totalAmount,
     created_at: order.createdAt,
     updated_at: order.updatedAt,
+    cancelled_at: order.cancelledAt,
+    cancelled_by: order.cancelledBy,
     items: order.orderItems.map(item => ({
       id: item.id,
       product_id: item.productId,
       variant_id: item.variantId,
       quantity: item.quantity,
       price: item.price,
+      size: item.selectedSize,
       product_name: item.product?.title
     }))
   }));
@@ -321,15 +455,113 @@ exports.getAllOrders = async () => {
 };
 
 exports.updateOrderStatus = async (status, paymentStatus, orderId) => {
-  const result = await prisma.order.update({
-    where: { id: parseInt(orderId) },
-    data: {
-      status,
-      paymentStatus,
-      updatedAt: new Date()
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: parseInt(orderId) },
+      include: { orderItems: true }
+    });
+
+    if (!order) {
+      return { rows: [] };
     }
+
+    if (order.status === 'CANCELLED' && status !== 'CANCELLED') {
+      throw buildHttpError('Cancelled orders cannot be moved back to active statuses', 409);
+    }
+
+    const data = {
+      status,
+      updatedAt: new Date()
+    };
+
+    if (paymentStatus) {
+      data.paymentStatus = paymentStatus;
+    }
+
+    if (status === 'CANCELLED') {
+      if (order.status !== 'CANCELLED') {
+        await restoreOrderStock(tx, order.orderItems);
+      }
+      data.paymentStatus = 'FAILED';
+      data.cancelledAt = order.cancelledAt || new Date();
+      data.cancelledBy = order.cancelledBy || 'ADMIN';
+    }
+
+    const result = await tx.order.update({
+      where: { id: parseInt(orderId) },
+      data
+    });
+
+    return { rows: [result] };
   });
-  return { rows: [result] };
+};
+
+exports.cancelOrderByCustomer = async (orderId, userId) => {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: parseInt(orderId) },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              select: { title: true }
+            },
+            product_variants: {
+              select: {
+                name: true,
+                images: true,
+                sizeOptions: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!order) {
+      throw buildHttpError('Order not found', 404);
+    }
+
+    if (order.customerId !== parseInt(userId)) {
+      throw buildHttpError('Access denied', 403);
+    }
+
+    const cancelMeta = getCancelMeta(order);
+    if (!cancelMeta.canCancel) {
+      throw buildHttpError(cancelMeta.cancelUnavailableReason || 'Order cannot be cancelled', 409);
+    }
+
+    await restoreOrderStock(tx, order.orderItems);
+
+    const updatedOrder = await tx.order.update({
+      where: { id: order.id },
+      data: {
+        status: 'CANCELLED',
+        paymentStatus: 'FAILED',
+        cancelledAt: new Date(),
+        cancelledBy: 'CUSTOMER',
+        updatedAt: new Date()
+      },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              select: { title: true }
+            },
+            product_variants: {
+              select: {
+                name: true,
+                images: true,
+                sizeOptions: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return transformUserOrder(updatedOrder);
+  });
 };
 
 exports.getOrderById = async (orderId) => {
@@ -352,7 +584,6 @@ exports.getOrderById = async (orderId) => {
     return { rows: [] };
   }
 
-  // Transform to match expected format
   const transformedOrder = {
     id: order.id,
     customer_id: order.customerId,
@@ -363,12 +594,16 @@ exports.getOrderById = async (orderId) => {
     payment_method: order.paymentMethod,
     created_at: order.createdAt,
     updated_at: order.updatedAt,
+    cancelled_at: order.cancelledAt,
+    cancelled_by: order.cancelledBy,
+    ...getCancelMeta(order),
     items: order.orderItems.map(item => ({
       id: item.id,
       product_id: item.productId,
       variant_id: item.variantId,
       quantity: item.quantity,
       price: item.price,
+      size: item.selectedSize,
       product_name: item.product?.title
     }))
   };
@@ -404,34 +639,7 @@ exports.getOrdersByUserIdAdmin = async (userId, limit, offset) => {
     skip: parseInt(offset)
   });
 
-  // Transform to match expected format
-  const transformedOrders = orders.map(order => ({
-    id: order.id,
-    customer_id: order.customerId,
-    status: order.status,
-    payment_status: order.paymentStatus,
-    total_amount: order.totalAmount,
-    created_at: order.createdAt,
-    updated_at: order.updatedAt,
-    items: order.orderItems.map((item) => {
-      const sizeOptions = Array.isArray(item.product_variants?.sizeOptions)
-        ? item.product_variants.sizeOptions
-        : [];
-      const firstSizeOption = sizeOptions[0] || {};
-
-      return {
-        id: item.id,
-        product_id: item.productId,
-        variant_id: item.variantId,
-        quantity: item.quantity,
-        price: firstSizeOption.price || item.price,
-        size: firstSizeOption.size,
-        product_name: item.product?.title,
-        variant_name: item.product_variants?.name,
-        images: item.product_variants?.images || []
-      };
-    })
-  }));
+  const transformedOrders = orders.map(transformUserOrder);
 
   return { rows: transformedOrders };
 };
@@ -474,15 +682,11 @@ exports.getDeliveredOrdersByUserId = async (userId, limit, offset) => {
     skip: parseInt(offset)
   });
 
-  // Transform to match expected format and add review info
   const transformedOrders = await Promise.all(orders.map(async (order) => {
+    const baseOrder = transformUserOrder(order);
     const items = await Promise.all(order.orderItems.map(async (item) => {
-      const sizeOptions = Array.isArray(item.product_variants?.sizeOptions)
-        ? item.product_variants.sizeOptions
-        : [];
-      const firstSizeOption = sizeOptions[0] || {};
+      const transformedItem = transformOrderItem(item);
 
-      // Check if reviewed
       const review = await prisma.review.findFirst({
         where: {
           userId: parseInt(userId),
@@ -491,27 +695,13 @@ exports.getDeliveredOrdersByUserId = async (userId, limit, offset) => {
       });
 
       return {
-        id: item.id,
-        product_id: item.productId,
-        variant_id: item.variantId,
-        quantity: item.quantity,
-        price: firstSizeOption.price || item.price,
-        size: firstSizeOption.size,
-        product_name: item.product?.title,
-        variant_name: item.product_variants?.name,
-        images: item.product_variants?.images || [],
+        ...transformedItem,
         reviewed: !!review
       };
     }));
 
     return {
-      id: order.id,
-      customer_id: order.customerId,
-      status: order.status,
-      payment_status: order.paymentStatus,
-      total_amount: order.totalAmount,
-      created_at: order.createdAt,
-      updated_at: order.updatedAt,
+      ...baseOrder,
       items
     };
   }));

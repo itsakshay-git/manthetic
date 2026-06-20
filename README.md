@@ -1,234 +1,181 @@
-# Manthetic Backend
+﻿# Manthetic Backend
 
-A robust and scalable e-commerce backend API built with Node.js, Express.js, and PostgreSQL. This project provides a comprehensive solution for managing products, orders, customers, and analytics in an e-commerce platform.
+Node.js and Express API for the Manthetic ecommerce platform. The backend manages authentication, products, variants, categories, cart, wishlist, orders, reviews, customer operations, analytics, image uploads, AI services, and cancellation workflows.
 
-## 🚀 Features
+## Current Features
 
-- **Authentication & Authorization**: JWT-based authentication with role-based access control (Admin/Customer)
-- **Product Management**: Complete CRUD operations for products, categories, and variants
-- **Order Management**: Comprehensive order processing with status tracking
-- **Shopping Cart**: Persistent cart functionality with size and price selection
-- **Wishlist System**: User wishlist management for products and variants
-- **Review System**: Product rating and review functionality
-- **Address Management**: User address storage and management
-- **Analytics**: Business intelligence and reporting capabilities
-- **File Upload**: Cloudinary integration for image management
-- **Input Validation**: Joi-based request validation
-- **Database**: PostgreSQL with Prisma ORM for type-safe database operations
+- JWT authentication with customer and admin authorization.
+- Product, category, and variant management with image upload support.
+- Cart and wishlist APIs with selected variant, size, quantity, and price handling.
+- Order placement, order history, admin status updates, and customer cancellation rules.
+- Review creation, moderation data, and admin review insights support.
+- Customer admin summaries with order, spend, address, cart, wishlist, review, and intent metrics.
+- Customer intent endpoint for cart/wishlist product visibility without exposing private address or phone data.
+- LangChain Gemini AI services for storefront style recommendations and admin review summaries.
+- PostgreSQL database access through Prisma.
+- Syntax and smoke verification scripts.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- **Runtime**: Node.js
-- **Framework**: Express.js
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Authentication**: JWT (jsonwebtoken)
-- **Password Hashing**: bcryptjs
-- **File Upload**: Multer + Cloudinary
-- **Validation**: Joi
-- **CORS**: Cross-origin resource sharing
-- **Environment**: dotenv
+- Node.js
+- Express 5
+- PostgreSQL
+- Prisma 6
+- JWT
+- bcryptjs
+- Joi and Zod
+- Multer and Cloudinary
+- LangChain JS with Gemini through `@langchain/google`
 
-## 📋 Prerequisites
+## Requirements
 
-Before running this project, make sure you have the following installed:
-
-- Node.js (v14 or higher)
+- Node.js 18 or newer
+- npm
 - PostgreSQL database
-- npm or yarn package manager
+- Google AI Studio API key for AI features
+- Cloudinary account for image upload features
 
-## 🚀 Installation & Setup
+## Environment Variables
 
-### 1. Clone the Repository
-
-```bash
-git clone <repository-url>
-cd manthetic-backend
-```
-
-### 2. Install Dependencies
-
-```bash
-npm install
-```
-
-### 3. Environment Configuration
-
-Create a `.env` file in the root directory with the following variables:
+Create `.env` in this project root:
 
 ```env
-# Database Configuration
 DATABASE_URL="postgresql://username:password@localhost:5432/manthetic_db"
-
-# JWT Configuration
-JWT_SECRET="your-super-secret-jwt-key"
-
-# Server Configuration
+JWT_SECRET="replace-with-a-secure-secret"
 PORT=5000
 
-# Cloudinary Configuration
 CLOUDINARY_CLOUD_NAME="your-cloud-name"
 CLOUDINARY_API_KEY="your-api-key"
 CLOUDINARY_API_SECRET="your-api-secret"
+
+GOOGLE_API_KEY="your-google-ai-studio-key"
+AI_MODEL="gemini-2.5-flash"
 ```
 
-### 4. Database Setup
+Do not commit real `.env` values.
+
+## Scripts
 
 ```bash
-# Generate Prisma client
-npx prisma generate
-
-# Run database migrations
-npx prisma migrate dev
-
-# (Optional) Seed the database
-npx prisma db seed
-```
-
-### 5. Start the Application
-
-```bash
-# Development mode with auto-reload
 npm run dev
-
-# Production mode
 npm start
+npm run check:syntax
+npm run smoke
 ```
 
-The server will start on `http://localhost:5000` (or the port specified in your `.env` file).
+## Database Setup
 
-## 📚 API Documentation
-
-### Base URL
+```bash
+npx prisma generate
+npx prisma migrate dev
 ```
+
+Recent migrations include:
+
+- Cart item timestamps for abandoned-cart and customer intent age tracking.
+- Order item selected size and order cancellation metadata for accurate stock restoration.
+
+## API Base URL
+
+```text
 http://localhost:5000/api
 ```
 
-### Authentication Endpoints
+## Key Routes
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/auth/register` | User registration |
-| POST | `/auth/login` | User login |
-| POST | `/auth/logout` | User logout |
+### Authentication
 
-### Product Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/products` | Get all products |
-| GET | `/products/:id` | Get product by ID |
-| POST | `/products` | Create new product (Admin only) |
-| PUT | `/products/:id` | Update product (Admin only) |
-| DELETE | `/products/:id` | Delete product (Admin only) |
-
-### Category Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/categories` | Get all categories |
-| GET | `/categories/:id` | Get category by ID |
-| POST | `/categories` | Create new category (Admin only) |
-| PUT | `/categories/:id` | Update category (Admin only) |
-| DELETE | `/categories/:id` | Delete category (Admin only) |
-
-### Cart Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/cart` | Get user's cart items |
-| POST | `/cart` | Add item to cart |
-| PUT | `/cart/:id` | Update cart item |
-| DELETE | `/cart/:id` | Remove item from cart |
-
-### Order Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/order` | Get user's orders |
-| POST | `/order` | Create new order |
-| PUT | `/order/:id` | Update order status |
-| GET | `/order/:id` | Get order details |
-
-### Additional Endpoints
-
-- **Variants**: `/api/variants` - Product variant management
-- **Reviews**: `/api/reviews` - Product review system
-- **Wishlist**: `/api/wishlist` - User wishlist management
-- **Addresses**: `/api/addresses` - User address management
-- **Analytics**: `/api/analytic` - Business analytics and reporting
-- **Customer**: `/api/customer` - Customer profile management
-
-## 🗄️ Database Schema
-
-The application uses the following main entities:
-
-- **User**: Authentication and user management
-- **Product**: Product information and metadata
-- **ProductVariant**: Product variations with sizes and images
-- **Category**: Product categorization
-- **Order**: Customer orders and status tracking
-- **CartItem**: Shopping cart functionality
-- **Review**: Product ratings and feedback
-- **Wishlist**: User wishlist items
-- **Address**: User shipping addresses
-
-## 🔐 Authentication & Authorization
-
-The API uses JWT tokens for authentication. Protected routes require a valid token in the Authorization header:
-
-```
-Authorization: Bearer <your-jwt-token>
+```text
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/logout
 ```
 
-### User Roles
+### Products and Catalog
 
-- **CUSTOMER**: Can view products, manage cart, place orders, and manage profile
-- **ADMIN**: Full access to all endpoints including product and user management
-
-## 📁 Project Structure
-
-```
-manthetic-backend/
-├── app.js                 # Main application setup
-├── server.js             # Server entry point
-├── package.json          # Dependencies and scripts
-├── prisma/
-│   └── schema.prisma     # Database schema
-├── routes/               # API route definitions
-├── controllers/          # Business logic handlers
-├── models/               # Data models
-├── middleware/           # Custom middleware
-├── validation/           # Request validation schemas
-├── utils/                # Utility functions
-└── uploads/              # File upload directory
+```text
+GET    /api/products
+GET    /api/products/:id
+POST   /api/products
+PUT    /api/products/:id
+DELETE /api/products/:id
 ```
 
+### Cart and Wishlist
 
+```text
+GET    /api/cart
+POST   /api/cart
+PUT    /api/cart/:id
+DELETE /api/cart/:id
 
-## 📦 Scripts
+GET    /api/wishlist
+POST   /api/wishlist
+DELETE /api/wishlist/:id
+```
 
-- `npm start` - Start the production server
-- `npm run dev` - Start development server with nodemon
+### Orders
 
-## 🔧 Development
+```text
+GET  /api/order
+POST /api/order
+GET  /api/order/:id
+PUT  /api/order/:id
+PUT  /api/order/:id/cancel
+```
 
-### Code Style
-- Follow standard JavaScript/Node.js conventions
-- Use meaningful variable and function names
-- Add comments for complex logic
+Customer cancellation is allowed only when:
 
-### Adding New Features
-1. Create the database model in `prisma/schema.prisma`
-2. Generate and run migrations
-3. Create the controller in `controllers/`
-4. Add validation in `validation/`
-5. Create routes in `routes/`
-6. Update `app.js` with new routes
+- The order belongs to the logged-in customer.
+- The order status is `PENDING` or `CONFIRMED`.
+- The order was created less than 24 hours ago.
+- The order items include selected size data required for exact stock restoration.
 
+`CANCELLED` is treated as a terminal status. Admin cancellation restores stock only once when transitioning from a non-cancelled status.
 
-## 🔄 Version History
+### Customers
 
-- **v1.0.0** - Initial release with core e-commerce functionality
+```text
+GET /api/customer/customers
+GET /api/customer/customer/:id/intent
+```
 
----
+The customer list preserves the `users: [...]` response shape and adds operational metrics such as order count, spend, cart count, wishlist count, abandoned cart state, and intent value. The intent endpoint returns safe customer summary data plus cart and wishlist product details. Passwords, full addresses, and phone numbers are not returned.
+
+### AI
+
+```text
+POST /api/ai/storefront/style-finder
+POST /api/ai/admin/review-insights
+```
+
+Storefront style finder accepts a shopper query plus optional filters and returns validated product or variant recommendations from real catalog candidates.
+
+Admin review insights requires admin authentication and returns structured sentiment, praises, complaints, affected products, and suggested actions.
+
+## Project Structure
+
+```text
+app.js                 Express app setup and route mounting
+server.js              Server entry point
+config/                Environment and shared config
+controller/            Route controllers
+middleware/            Auth, admin protection, uploads
+models/                Data access and domain logic
+routes/                Express route definitions
+services/              Shared service integrations, including AI
+prisma/                Prisma schema and migrations
+scripts/               Smoke checks and utility scripts
+validation/            Request validation schemas
+```
+
+## Verification
+
+Before shipping backend changes, run:
+
+```bash
+npm run check:syntax
+npm run smoke
+```
+
+Also verify protected routes manually when touching auth-sensitive behavior.

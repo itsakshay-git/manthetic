@@ -99,6 +99,8 @@ model CartItem {
   quantity      Int?
   selectedSize  String?         @map("selected_size") @db.VarChar(10)
   selectedPrice Decimal?        @map("selected_price") @db.Decimal
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
   variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("cart_items")
@@ -127,6 +129,8 @@ model Order {
   updatedAt     DateTime?   @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
   addressId     Int?        @map("address_id")
   paymentMethod String?     @map("payment_method") @db.VarChar(20)
+  cancelledAt   DateTime?   @map("cancelled_at") @db.Timestamp(6)
+  cancelledBy   String?     @map("cancelled_by") @db.VarChar(20)
   orderItems    OrderItem[]
   addresses     Address?    @relation(fields: [addressId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -140,6 +144,7 @@ model OrderItem {
   variantId        Int?            @map("variant_id")
   quantity         Int?
   price            Decimal?        @db.Decimal
+  selectedSize     String?         @map("selected_size") @db.VarChar(10)
   order            Order?          @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   product          Product?        @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   product_variants ProductVariant? @relation(fields: [variantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -151,3 +156,5 @@ enum user_role {
   ADMIN
   CUSTOMER
 }
+
+

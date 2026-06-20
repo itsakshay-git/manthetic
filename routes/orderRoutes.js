@@ -5,6 +5,7 @@ const {
   getMyOrders,
   getAllOrders,
   updateOrderStatus,
+  cancelOrder,
   getOrderById,
   getOrdersByUserId,
   getDeliveredOrdersByUserId
@@ -21,6 +22,7 @@ router.get('/admin/orders', protect, isAdmin, getAllOrders);
 router.put('/admin/order/:id', protect, isAdmin, validateRequest(updateOrderStatusSchema), updateOrderStatus);
 router.get('/user/delivered-orders/:id', protect, getDeliveredOrdersByUserId);
 router.get('/user/:id', protect, getOrdersByUserId);
+router.put('/:id/cancel', protect, cancelOrder);
 router.get('/:id', protect, getOrderById);
 
 module.exports = router;

@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const defaultCorsOrigins = [
+  'http://localhost:5173',
   'http://localhost:5174',
   'https://manthetic-admin.vercel.app',
   'https://manthetic-storefront.vercel.app',
@@ -27,6 +28,10 @@ const config = {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
+  },
+  ai: {
+    googleApiKey: process.env.GOOGLE_API_KEY,
+    model: process.env.AI_MODEL || 'gemini-2.5-flash',
   },
 };
 

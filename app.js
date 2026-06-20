@@ -34,6 +34,7 @@ app.use('/api/reviews', require('./routes/reviewRoutes'));
 app.use('/api/customer', require('./routes/customerRoutes'));
 app.use('/api/analytic', require('./routes/analyticsRoutes'));
 app.use('/api/addresses', require('./routes/addressRoutes'));
+app.use('/api/ai', require('./routes/aiRoutes'));
 
 app.use(errorHandler);
 
