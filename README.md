@@ -63,6 +63,10 @@ npm run check:syntax
 npm run smoke
 ```
 
+`npm install` runs `prisma generate` through `postinstall` so the Prisma client matches the checked-in schema.
+
+`npm start` runs `prisma migrate deploy` before `node server.js`. This keeps Render deployments aligned with the latest checked-in migrations before the API starts.
+
 ## Database Setup
 
 ```bash
